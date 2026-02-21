@@ -23,7 +23,7 @@ import { GatewayChatClient } from "./gateway-chat.js";
 import { editorTheme, theme } from "./theme/theme.js";
 import { createCommandHandlers } from "./tui-command-handlers.js";
 import { createEventHandlers } from "./tui-event-handlers.js";
-import { formatTokens } from "./tui-formatters.js";
+import { formatTokens, formatContextCompact } from "./tui-formatters.js";
 import { createLocalShellRunner } from "./tui-local-shell.js";
 import { createOverlayHandlers } from "./tui-overlays.js";
 import { createSessionActions } from "./tui-session-actions.js";
@@ -478,10 +478,17 @@ export async function runTui(opts: TuiOptions) {
   const updateHeader = () => {
     const sessionLabel = formatSessionKey(currentSessionKey);
     const agentLabel = formatAgentLabel(currentAgentId);
+    const ctx = formatContextCompact(
+      sessionInfo.totalTokens ?? null,
+      sessionInfo.contextTokens ?? null,
+    );
+    const ctxSuffix = ctx.text
+      ? ` | ${ctx.level === "critical" ? "\x1b[31m" : ctx.level === "warn" ? "\x1b[33m" : ""}${ctx.text}${ctx.level !== "ok" && ctx.level !== "unknown" ? "\x1b[0m" : ""}`
+      : "";
     header.setText(
       theme.header(
         `openclaw tui - ${client.connection.url} - agent ${agentLabel} - session ${sessionLabel}`,
-      ),
+      ) + ctxSuffix,
     );
   };
 

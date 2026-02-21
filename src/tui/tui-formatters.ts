@@ -311,6 +311,29 @@ export function formatTokens(total?: number | null, context?: number | null) {
   return `tokens ${totalLabel}/${formatTokenCount(context)}${pct !== null ? ` (${pct}%)` : ""}`;
 }
 
+/**
+ * Format a compact context usage string for the header bar.
+ * Returns e.g. "ctx: 45K/200K (23%)" with color level indicator.
+ */
+export function formatContextCompact(
+  total?: number | null,
+  context?: number | null,
+): { text: string; level: "ok" | "warn" | "critical" | "unknown" } {
+  if (total == null || context == null) {
+    return { text: "", level: "unknown" };
+  }
+  const pct = context > 0 ? Math.round((total / context) * 100) : 0;
+  const remaining = Math.max(0, context - total);
+  const totalLabel = formatTokenCount(total);
+  const ctxLabel = formatTokenCount(context);
+  const remainLabel = formatTokenCount(remaining);
+  const level: "ok" | "warn" | "critical" = pct >= 80 ? "critical" : pct >= 50 ? "warn" : "ok";
+  return {
+    text: `ctx: ${totalLabel}/${ctxLabel} (${pct}%) ${remainLabel} left`,
+    level,
+  };
+}
+
 export function formatContextUsageLine(params: {
   total?: number | null;
   context?: number | null;
