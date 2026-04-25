@@ -1584,12 +1584,19 @@ export class QmdMemoryManager implements MemorySearchManager {
       return;
     }
     this.sessionWarm.add(key);
-    void this.sync({ reason: "session-start" }).catch((err) => {
-      log.warn(`qmd session-start sync failed: ${String(err)}`);
-    });
+    // Do not kick off a blind QMD update here. Session-start warming should stay
+    // cheap and non-blocking; the exported session markdown is already updated by
+    // the shared session exporter, and forcing a fresh `qmd update` on first
+    // search creates a reader/writer collision with direct `qmd query` calls.
+    // The expensive sync paths remain: boot, interval, watch, explicit sync, and
+    // on-search when non-session memory sources are actually dirty.
   }
 
   private async maybeSyncDirtySearchState(): Promise<void> {
+    // Keep search-time sync limited to non-session collection dirtiness. Session
+    // transcript exports are handled separately and can churn frequently; pushing
+    // a full `qmd update` from the search path turns user recall into a write
+    // trigger, which is exactly how we end up racing direct `qmd query` readers.
     if (!this.syncSettings?.onSearch || !this.dirty) {
       return;
     }
