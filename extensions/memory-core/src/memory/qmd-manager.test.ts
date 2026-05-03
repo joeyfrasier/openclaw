@@ -302,7 +302,7 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
-  it("runs a qmd sync once for the first search in a fresh session", async () => {
+  it("does not run a qmd sync on first search in a fresh session", async () => {
     cfg = {
       agents: {
         defaults: {
@@ -342,10 +342,10 @@ describe("QmdMemoryManager", () => {
     await manager.search("hello again", { sessionKey: "session-a" });
 
     const updateCalls = spawnMock.mock.calls.filter((call) => call[1]?.[0] === "update");
-    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls).toHaveLength(0);
   });
 
-  it("does not block first search on session-start sync completion", async () => {
+  it("first search resolves immediately without waiting for any sync", async () => {
     vi.useFakeTimers();
     cfg = {
       agents: {
@@ -370,13 +370,7 @@ describe("QmdMemoryManager", () => {
       },
     } as OpenClawConfig;
 
-    let releaseUpdate: (() => void) | null = null;
     spawnMock.mockImplementation((_cmd: string, args: string[]) => {
-      if (args[0] === "update") {
-        const child = createMockChild({ autoClose: false });
-        releaseUpdate = () => child.closeWith(0);
-        return child;
-      }
       if (args[0] === "search" || args[0] === "query" || args[0] === "vsearch") {
         const child = createMockChild({ autoClose: false });
         emitAndClose(child, "stdout", "[]");
@@ -391,12 +385,9 @@ describe("QmdMemoryManager", () => {
     await vi.advanceTimersByTimeAsync(500);
     await expect(searchPromise).resolves.toEqual([]);
 
-    (
-      releaseUpdate ??
-      (() => {
-        throw new Error("expected qmd update process to start");
-      })
-    )();
+    const updateCalls = spawnMock.mock.calls.filter((call) => call[1]?.[0] === "update");
+    expect(updateCalls).toHaveLength(0);
+
     await manager.close();
   });
 
