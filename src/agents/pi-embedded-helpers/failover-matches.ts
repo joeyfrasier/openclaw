@@ -203,6 +203,11 @@ const ERROR_PATTERNS = {
     "账户已欠费",
     // Z.ai: error 1311 = model not included in current subscription plan (#48988)
     ZAI_BILLING_CODE_1311_RE,
+    // OpenRouter API-key budget caps (WOR-295). Bodies seen in the wild:
+    //   "403 API key budget limit exceeded (monthly limit). Contact your org admin."
+    //   "403 Budget limit exceeded (daily limit). Contact your org admin."
+    /\bbudget\s+limit\s+(?:exceeded|reached|exhausted)\b/i,
+    /\b(?:daily|monthly|weekly)\s+budget\s+(?:limit|cap)\b/i,
   ],
   authPermanent: HIGH_CONFIDENCE_AUTH_PERMANENT_PATTERNS,
   auth: [

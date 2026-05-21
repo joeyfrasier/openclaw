@@ -94,6 +94,35 @@ describe("Z.ai vendor error codes (#48988)", () => {
   });
 });
 
+describe("OpenRouter API-key budget caps (WOR-295)", () => {
+  it("classifies the daily-budget upstream body as billing", () => {
+    expect(
+      isBillingErrorMessage("403 Budget limit exceeded (daily limit). Contact your org admin."),
+    ).toBe(true);
+  });
+
+  it("classifies the monthly API-key-budget upstream body as billing", () => {
+    expect(
+      isBillingErrorMessage(
+        "403 API key budget limit exceeded (monthly limit). Contact your org admin.",
+      ),
+    ).toBe(true);
+  });
+
+  it('classifies the bare phrase "budget limit exceeded" as billing', () => {
+    expect(isBillingErrorMessage("Budget limit exceeded")).toBe(true);
+  });
+
+  it("does not collide with context-budget overflow text", () => {
+    // Defensive: \"context budget\" is a context-overflow signal handled by
+    // a different classifier (isContextOverflowError). It must NOT be
+    // mis-classified as billing.
+    expect(isBillingErrorMessage("input length would exceed context budget for this model")).toBe(
+      false,
+    );
+  });
+});
+
 describe("server error status classification", () => {
   it("classifies a bare internal server error status as server error", () => {
     expect(isServerErrorMessage("status: internal server error")).toBe(true);
