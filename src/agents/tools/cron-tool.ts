@@ -948,3 +948,225 @@ Use jobId canonical; id accepted compat. contextMessages (0-10) adds previous me
     },
   };
 }
+
+// Per-action tool factories. Each returns a tool with a narrow schema (no
+// flat union, no top-level `action` enum). The execute body builds the same
+// CronExecContext used by the legacy `cron` super-tool and calls the shared
+// executeCronAction dispatcher with a fixed action, so behavior is identical
+// between calling cron + action="update" and calling cron_update directly.
+
+type CronPerActionToolBuilder = (
+  opts: CronToolOptions | undefined,
+  callGateway: GatewayToolCaller,
+) => AnyAgentTool;
+
+function buildCronExecContext(
+  opts: CronToolOptions | undefined,
+  callGateway: GatewayToolCaller,
+  params: Record<string, unknown>,
+): CronExecContext {
+  const gatewayOpts: GatewayCallOptions = {
+    ...readGatewayCallOptions(params),
+    timeoutMs:
+      typeof params.timeoutMs === "number" && Number.isFinite(params.timeoutMs)
+        ? params.timeoutMs
+        : 60_000,
+  };
+  return { opts, callGateway, gatewayOpts };
+}
+
+const CRON_STATUS_DESCRIPTION =
+  "Get scheduler status. Returns whether the cron scheduler is enabled and basic counters. No parameters required.";
+
+const CRON_LIST_DESCRIPTION = `List scheduled cron jobs.
+- includeDisabled: include disabled jobs (default false)
+- agentId: filter by agent id; when omitted in an agent session this is auto-filled from the session
+
+For restricted-scope isolated runs, list returns only the current job.`;
+
+const CRON_GET_DESCRIPTION = "Get a single cron job. jobId required (id accepted for back-compat).";
+
+const CRON_ADD_DESCRIPTION = `Create a cron job. Required: a "job" object describing the schedule, payload, and (optionally) delivery.
+
+JOB SCHEMA:
+{
+  "name": "string",
+  "schedule": { ... },      // required
+  "payload": { ... },       // required
+  "delivery": { ... },      // optional announce/webhook
+  "sessionTarget": "main" | "isolated" | "current" | "session:<id>",
+  "enabled": true | false   // default true
+}
+
+SCHEDULE TYPES (schedule.kind):
+- "at": { "kind": "at", "at": "<ISO-8601>" }
+- "every": { "kind": "every", "everyMs": <ms>, "anchorMs": <optional> }
+- "cron": { "kind": "cron", "expr": "<cron-expr>", "tz": "<optional IANA tz>" }
+  Write expr in tz wall-clock time; omitted tz = Gateway host local timezone (not UTC).
+
+PAYLOAD TYPES (payload.kind):
+- "systemEvent": { "kind": "systemEvent", "text": "<message>" } (main only)
+- "agentTurn": { "kind": "agentTurn", "message": "<prompt>", "model": "<opt>", "thinking": "<opt>", "timeoutSeconds": <opt, 0=no timeout> } (isolated/current/session)
+
+CRITICAL: sessionTarget="main" REQUIRES payload.kind="systemEvent"; isolated/current/session REQUIRE payload.kind="agentTurn".
+Default: prefer isolated agentTurn jobs unless the user wants current-session binding.
+
+contextMessages (0-10) attaches previous chat turns as job context.`;
+
+const CRON_UPDATE_DESCRIPTION = `Patch a cron job. Required: jobId (or id) AND patch.
+
+patch is a partial CronJob shape: any of { name?, schedule?, sessionTarget?, wakeMode?, payload?, delivery?, description?, enabled?, deleteAfterRun?, agentId?, sessionKey?, failureAlert? }. Omit keys you do not want to change. To disable a job, send patch = { "enabled": false }.`;
+
+const CRON_REMOVE_DESCRIPTION =
+  "Delete a cron job. jobId required (id accepted for back-compat). For restricted-scope runs, only the current job is removable.";
+
+const CRON_RUN_DESCRIPTION = `Trigger a cron job now.
+- jobId required
+- runMode: "due" (only run if currently due) or "force" (default, run regardless)`;
+
+const CRON_RUNS_DESCRIPTION = "Get the run history for one cron job. jobId required.";
+
+const CRON_WAKE_DESCRIPTION = `Send a wake event to the current agent session.
+- text: wake event text (required)
+- mode: "now" (immediate) or "next-heartbeat" (default)`;
+
+const cronStatusToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron status",
+  name: "cron_status",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_STATUS_DESCRIPTION,
+  parameters: CronStatusSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "status", params);
+    return executeCronAction("status", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+const cronListToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron list",
+  name: "cron_list",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_LIST_DESCRIPTION,
+  parameters: CronListSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "list", params);
+    return executeCronAction("list", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+const cronGetToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron get",
+  name: "cron_get",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_GET_DESCRIPTION,
+  parameters: CronGetSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "get", params);
+    return executeCronAction("get", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+const cronAddToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron add",
+  name: "cron_add",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_ADD_DESCRIPTION,
+  parameters: CronAddSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "add", params);
+    return executeCronAction("add", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+const cronUpdateToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron update",
+  name: "cron_update",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_UPDATE_DESCRIPTION,
+  parameters: CronUpdateSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "update", params);
+    return executeCronAction("update", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+const cronRemoveToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron remove",
+  name: "cron_remove",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_REMOVE_DESCRIPTION,
+  parameters: CronRemoveSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "remove", params);
+    return executeCronAction("remove", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+const cronRunToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron run",
+  name: "cron_run",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_RUN_DESCRIPTION,
+  parameters: CronRunSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "run", params);
+    return executeCronAction("run", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+const cronRunsToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron runs",
+  name: "cron_runs",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_RUNS_DESCRIPTION,
+  parameters: CronRunsSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "runs", params);
+    return executeCronAction("runs", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+const cronWakeToolBuilder: CronPerActionToolBuilder = (opts, callGateway) => ({
+  label: "Cron wake",
+  name: "cron_wake",
+  displaySummary: CRON_TOOL_DISPLAY_SUMMARY,
+  description: CRON_WAKE_DESCRIPTION,
+  parameters: CronWakeSchema,
+  execute: async (_toolCallId, args) => {
+    const params = args as Record<string, unknown>;
+    assertCronSelfRemoveScope(opts, "wake", params);
+    return executeCronAction("wake", buildCronExecContext(opts, callGateway, params), params);
+  },
+});
+
+/**
+ * createCronTools returns the per-action cron tools plus the legacy `cron`
+ * super-tool as an alias. Callers should prefer this over createCronTool so
+ * that frontier models see narrow schemas per action and do not emit default
+ * values for unused union keys. The legacy alias is kept so skills with
+ * hardcoded `cron` references (cron-health-monitor, weekly-skill-review,
+ * omc-weekly-extract, etc.) continue to work without migration. See WOR-317.
+ */
+export function createCronTools(opts?: CronToolOptions, deps?: CronToolDeps): AnyAgentTool[] {
+  const callGateway = deps?.callGatewayTool ?? callGatewayTool;
+  return [
+    cronStatusToolBuilder(opts, callGateway),
+    cronListToolBuilder(opts, callGateway),
+    cronGetToolBuilder(opts, callGateway),
+    cronAddToolBuilder(opts, callGateway),
+    cronUpdateToolBuilder(opts, callGateway),
+    cronRemoveToolBuilder(opts, callGateway),
+    cronRunToolBuilder(opts, callGateway),
+    cronRunsToolBuilder(opts, callGateway),
+    cronWakeToolBuilder(opts, callGateway),
+    createCronTool(opts, deps),
+  ];
+}
