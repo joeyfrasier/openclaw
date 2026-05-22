@@ -308,6 +308,101 @@ export const CronToolSchema = Type.Object(
   { additionalProperties: true },
 );
 
+// Per-action schemas declare only the parameters each action actually needs.
+// Each one is wired into createCronTools() as a separate `cron_<action>` tool
+// so frontier models do not see a flat union and feel obliged to emit default
+// values for unused keys. The legacy `cron` super-tool keeps CronToolSchema
+// above as its parameters surface for back-compat. See WOR-317.
+
+const CronGatewayCommonSchema = {
+  gatewayUrl: Type.Optional(Type.String()),
+  gatewayToken: Type.Optional(Type.String()),
+  timeoutMs: Type.Optional(Type.Number()),
+};
+
+export const CronStatusSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+  },
+  { additionalProperties: true },
+);
+
+export const CronListSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+    includeDisabled: Type.Optional(Type.Boolean()),
+    agentId: Type.Optional(Type.String({ description: "List filter: agent id" })),
+  },
+  { additionalProperties: true },
+);
+
+export const CronGetSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+    jobId: Type.Optional(Type.String()),
+    id: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+
+export const CronAddSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+    job: CronJobObjectSchema,
+    contextMessages: Type.Optional(
+      Type.Number({ minimum: 0, maximum: REMINDER_CONTEXT_MESSAGES_MAX }),
+    ),
+  },
+  { additionalProperties: true },
+);
+
+export const CronUpdateSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+    jobId: Type.Optional(Type.String()),
+    id: Type.Optional(Type.String()),
+    patch: CronPatchObjectSchema,
+  },
+  { additionalProperties: true },
+);
+
+export const CronRemoveSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+    jobId: Type.Optional(Type.String()),
+    id: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+
+export const CronRunSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+    jobId: Type.Optional(Type.String()),
+    id: Type.Optional(Type.String()),
+    runMode: optionalStringEnum(CRON_RUN_MODES),
+  },
+  { additionalProperties: true },
+);
+
+export const CronRunsSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+    jobId: Type.Optional(Type.String()),
+    id: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+
+export const CronWakeSchema = Type.Object(
+  {
+    ...CronGatewayCommonSchema,
+    text: Type.String({ description: "Wake event text" }),
+    mode: optionalStringEnum(CRON_WAKE_MODES),
+  },
+  { additionalProperties: true },
+);
+
 type CronToolOptions = {
   agentSessionKey?: string;
   currentDeliveryContext?: DeliveryContext;
