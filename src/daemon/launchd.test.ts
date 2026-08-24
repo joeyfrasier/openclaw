@@ -2383,7 +2383,7 @@ describe("launchd install", () => {
     expect(state.dirModes.get(tmpDir)).toBe(0o700);
   });
 
-  it("writes KeepAlive=true policy with shutdown and throttle limits", async () => {
+  it("writes owner-only supervisor log paths with the KeepAlive policy", async () => {
     const env = createDefaultLaunchdEnv();
     await installLaunchAgent(defaultLaunchAgentFixture(env));
 
@@ -2395,6 +2395,8 @@ describe("launchd install", () => {
     expect(plist).toContain("<string>/dev/null</string>");
     expect(plist).toContain("<key>StandardOutPath</key>");
     expect(plist).toContain("<string>/Users/test/Library/Logs/openclaw/gateway.log</string>");
+    expect(plist).toContain("<key>StandardErrorPath</key>");
+    expect(plist).toContain("<string>/Users/test/Library/Logs/openclaw/gateway.err.log</string>");
     expect(plist).not.toContain("<key>SuccessfulExit</key>");
     expect(plist).toContain("<key>ExitTimeOut</key>");
     expect(plist).toContain(`<integer>${LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS}</integer>`);
@@ -2427,7 +2429,7 @@ describe("launchd install", () => {
     expect(plist).toContain("<key>StandardOutPath</key>");
     expect(plist).toContain("<string>/Users/test/Library/Logs/openclaw/gateway.log</string>");
     expect(plist).toContain("<key>StandardErrorPath</key>");
-    expect(plist).toContain("<string>/dev/null</string>");
+    expect(plist).toContain("<string>/Users/test/Library/Logs/openclaw/gateway.err.log</string>");
     expect(plist).toContain("<key>KeepAlive</key>");
     expect(plist).toContain("<string>node</string>");
     expect(plist).not.toContain("OPENCLAW_SERVICE_VERSION");
@@ -3155,6 +3157,7 @@ describe("launchd install", () => {
     expect(plist).toContain("<key>StandardInPath</key>");
     expect(plist).toContain("<string>/dev/null</string>");
     expect(plist).toContain("<string>/Users/test/Library/Logs/openclaw/gateway.log</string>");
+    expect(plist).toContain("<string>/Users/test/Library/Logs/openclaw/gateway.err.log</string>");
     expect(launchctlCommandNames()).toEqual(["print", "enable", "bootout", "enable", "bootstrap"]);
     expect(launchctlCommandNames()).not.toContain("kickstart");
     expect(onMutation.mock.calls).toEqual([

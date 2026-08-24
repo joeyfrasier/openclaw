@@ -4,6 +4,7 @@ import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
+import { prepareSqliteReadOnlyLocationSync } from "./sqlite-readonly-location.js";
 import {
   hasMatchingRecordedTranscriptArtifact,
   isRecordedCanonicalTranscriptExport,
@@ -189,56 +190,61 @@ export function readMeetingTranscriptMigrationDetectionState(params: {
       pendingImportCount: 0,
     };
   }
-  const database = openNodeSqliteDatabase(databasePath, { readOnly: true });
+  const prepared = prepareSqliteReadOnlyLocationSync(databasePath);
   try {
-    const tables = new Set(
-      database
-        .prepare(
-          "SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('meeting_transcript_sessions', 'migration_sources')",
-        )
-        .all()
-        .map((row) => String(row.name)),
-    );
-    const exportOwnership = new Map<string, MeetingTranscriptExportOwnership>();
-    const exportOwnershipByFoldedSelector = new Map<string, MeetingTranscriptExportOwnership[]>();
-    if (tables.has("meeting_transcript_sessions")) {
-      const rows = database
-        .prepare(
-          "SELECT session_id, started_at, selector, export_manifest_json, export_pending_json FROM meeting_transcript_sessions",
-        )
-        .all();
-      for (const row of rows) {
-        const selector = String(row.selector);
-        const parsed = JSON.parse(String(row.export_manifest_json)) as unknown;
-        if (isRecord(parsed)) {
-          const ownership = {
-            selector,
-            sessionId: String(row.session_id),
-            startedAt: String(row.started_at),
-            manifest: parsed as Record<string, string>,
-            pending: new Set(JSON.parse(String(row.export_pending_json)) as string[]),
-          } satisfies MeetingTranscriptExportOwnership;
-          exportOwnership.set(selector, ownership);
-          const foldedSelector = selector.toLowerCase();
-          const foldedOwners = exportOwnershipByFoldedSelector.get(foldedSelector) ?? [];
-          foldedOwners.push(ownership);
-          exportOwnershipByFoldedSelector.set(foldedSelector, foldedOwners);
+    const database = openNodeSqliteDatabase(prepared.location, { readOnly: true });
+    try {
+      const tables = new Set(
+        database
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('meeting_transcript_sessions', 'migration_sources')",
+          )
+          .all()
+          .map((row) => String(row.name)),
+      );
+      const exportOwnership = new Map<string, MeetingTranscriptExportOwnership>();
+      const exportOwnershipByFoldedSelector = new Map<string, MeetingTranscriptExportOwnership[]>();
+      if (tables.has("meeting_transcript_sessions")) {
+        const rows = database
+          .prepare(
+            "SELECT session_id, started_at, selector, export_manifest_json, export_pending_json FROM meeting_transcript_sessions",
+          )
+          .all();
+        for (const row of rows) {
+          const selector = String(row.selector);
+          const parsed = JSON.parse(String(row.export_manifest_json)) as unknown;
+          if (isRecord(parsed)) {
+            const ownership = {
+              selector,
+              sessionId: String(row.session_id),
+              startedAt: String(row.started_at),
+              manifest: parsed as Record<string, string>,
+              pending: new Set(JSON.parse(String(row.export_pending_json)) as string[]),
+            } satisfies MeetingTranscriptExportOwnership;
+            exportOwnership.set(selector, ownership);
+            const foldedSelector = selector.toLowerCase();
+            const foldedOwners = exportOwnershipByFoldedSelector.get(foldedSelector) ?? [];
+            foldedOwners.push(ownership);
+            exportOwnershipByFoldedSelector.set(foldedSelector, foldedOwners);
+          }
         }
       }
+      const pendingRow = tables.has("migration_sources")
+        ? (database
+            .prepare(
+              "SELECT COUNT(*) AS count FROM migration_sources WHERE migration_kind = ? AND status = ? AND removed_source = 0",
+            )
+            .get("meeting-transcripts-files-v1", "imported") as { count?: unknown } | undefined)
+        : undefined;
+      return {
+        exportOwnership,
+        exportOwnershipByFoldedSelector,
+        pendingImportCount: typeof pendingRow?.count === "number" ? pendingRow.count : 0,
+      };
+    } finally {
+      database.close();
     }
-    const pendingRow = tables.has("migration_sources")
-      ? (database
-          .prepare(
-            "SELECT COUNT(*) AS count FROM migration_sources WHERE migration_kind = ? AND status = ? AND removed_source = 0",
-          )
-          .get("meeting-transcripts-files-v1", "imported") as { count?: unknown } | undefined)
-      : undefined;
-    return {
-      exportOwnership,
-      exportOwnershipByFoldedSelector,
-      pendingImportCount: typeof pendingRow?.count === "number" ? pendingRow.count : 0,
-    };
   } finally {
-    database.close();
+    prepared.cleanup();
   }
 }

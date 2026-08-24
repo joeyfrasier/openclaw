@@ -5,6 +5,7 @@ import { createSourceDeliveryPlan } from "../../infra/outbound/source-delivery-p
 import type { SkillSnapshot } from "../../skills/types.js";
 import { applyJobPatch } from "../service/jobs.js";
 import type { CronDeliveryMode } from "../types.js";
+import { MORNING_BRIEF_CRON_JOB_ID } from "./morning-brief-content-gate.js";
 import type { MutableCronSession } from "./run-session-state.js";
 import {
   buildSafeExternalPromptMock,
@@ -1028,6 +1029,47 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
 
     expect(runEmbeddedAgentMock).toHaveBeenCalledTimes(1);
     expectEmbeddedRunFields({ disableMessageTool: false });
+  });
+
+  it("removes the message tool before the gated morning brief executes", async () => {
+    mockRunCronFallbackPassthrough();
+    const morningBriefJob = {
+      ...makeAnnounceMessageToolJob(),
+      id: MORNING_BRIEF_CRON_JOB_ID,
+    };
+    const executor = createMessageToolExecutor({
+      job: morningBriefJob,
+      deliveryRequested: true,
+    });
+
+    await executor.runPrompt("draft the morning brief");
+
+    expectEmbeddedRunFields({ disableMessageTool: true });
+    expect(expectEmbeddedRunPrompt(true)).not.toMatch(/use the message tool/i);
+  });
+
+  it("removes the CLI message tool before the gated morning brief executes", async () => {
+    mockCliAnnounceRun();
+    const morningBriefJob = {
+      ...makeAnnounceMessageToolJob(),
+      id: MORNING_BRIEF_CRON_JOB_ID,
+    };
+    const executor = createMessageToolExecutor({
+      job: morningBriefJob,
+      deliveryRequested: true,
+      liveSelection: { provider: "cli-provider", model: "test-model" },
+    });
+
+    await executor.runPrompt("draft the morning brief");
+
+    expectRecordFields(
+      getMockCallArg(runCliAgentMock, 0, 0, "CLI run"),
+      {
+        disableMessageTool: true,
+      },
+      "CLI run params",
+    );
+    expect(expectCliRunPrompt(true)).not.toMatch(/use the message tool/i);
   });
 
   it("releases cron run context references after completion", async () => {

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   invalidate: vi.fn(),
   read: vi.fn(),
   readStartup: vi.fn(),
+  readPersistedRuntimeSelections: vi.fn(),
   refreshPreparedModels: vi.fn(),
   refresh: vi.fn(),
   registerAuthListener: vi.fn(),
@@ -33,6 +34,9 @@ vi.mock("../agents/prepared-model-runtime.js", () => ({
 vi.mock("../skills/runtime/refresh.js", () => ({
   registerSkillsChangeListener: mocks.registerSkillsListener,
 }));
+vi.mock("./server-startup-model-runtime-selections.js", () => ({
+  readGatewayPersistedRuntimePluginSelections: mocks.readPersistedRuntimeSelections,
+}));
 
 const { createGatewayChatMetadataLifecycle } = await import("./server-chat-metadata-lifecycle.js");
 const { ChatMetadataSnapshotUnavailableError } =
@@ -53,6 +57,9 @@ beforeEach(() => {
     refresh: mocks.refresh,
   });
   mocks.refresh.mockResolvedValue(undefined);
+  mocks.readPersistedRuntimeSelections.mockReturnValue(
+    new Map([["main", [{ modelId: "gpt-5.5", provider: "openai", runtime: "codex" }]]]),
+  );
   mocks.registerAuthListener.mockReturnValue(mocks.unregisterAuthListener);
   mocks.registerModelListener.mockReturnValue(mocks.unregisterModelListener);
   mocks.registerSkillsListener.mockReturnValue(mocks.unregisterSkillsListener);
@@ -88,6 +95,24 @@ describe("gateway chat metadata lifecycle", () => {
     expect(mocks.registerModelListener).not.toHaveBeenCalled();
     expect(mocks.registerSkillsListener).not.toHaveBeenCalled();
     expect(sidecars).toEqual([]);
+  });
+
+  it("retains persisted runtime selections when a minimal Gateway publishes on demand", async () => {
+    const { lifecycle: pendingLifecycle } = createLifecycle(true);
+    await pendingLifecycle;
+    const createParams = mocks.createRuntime.mock.calls[0]?.[0] as
+      | { beforeRefresh?: () => Promise<void> }
+      | undefined;
+
+    await createParams?.beforeRefresh?.();
+
+    expect(mocks.refreshPreparedModels).toHaveBeenCalledWith(config, {
+      additionalRuntimePluginSelectionsByAgentId:
+        mocks.readPersistedRuntimeSelections.mock.results[0]?.value,
+      allowGatewaySubagentBinding: true,
+      catalogMode: "static",
+      gatewayLifecycle: true,
+    });
   });
 
   it("treats an unavailable catch-up snapshot as expected before owner publication", async () => {

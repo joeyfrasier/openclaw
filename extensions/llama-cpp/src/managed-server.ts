@@ -73,8 +73,9 @@ const chatPreparationPromises = new Map<string, Promise<void>>();
 // Chat and embedding share one restart preset. Serialize read-modify-write updates so neither
 // path can discard the other model stanza during concurrent preparation.
 const presetWritePromises = new Map<string, Promise<void>>();
-// Pooled embeddings must fit one input in one physical batch. Match llama.cpp's EmbeddingGemma preset.
-const LLAMA_CPP_EMBEDDING_UBATCH_SIZE = 2048;
+// llama.cpp embeddings must process the full logical batch in one physical ubatch.
+// Keep this on the embedding preset so chat models retain their independent defaults.
+const LLAMA_CPP_EMBEDDING_BATCH_SIZE = 2048;
 
 function parseHuggingFaceSource(source: string): {
   user: string;
@@ -328,7 +329,12 @@ function renderEmbeddingModelSection(params: { isDefault?: boolean; modelPath: s
   return [
     `[${DEFAULT_LLAMA_CPP_EMBEDDING_MODEL_ID}]`,
     `model = ${assertIniValue(params.modelPath, "llama.cpp embedding model path")}`,
-    ...(params.isDefault ? [`ubatch-size = ${LLAMA_CPP_EMBEDDING_UBATCH_SIZE}`] : []),
+    ...(params.isDefault
+      ? [
+          `batch-size = ${LLAMA_CPP_EMBEDDING_BATCH_SIZE}`,
+          `ubatch-size = ${LLAMA_CPP_EMBEDDING_BATCH_SIZE}`,
+        ]
+      : []),
     "embedding = true",
   ].join("\n");
 }

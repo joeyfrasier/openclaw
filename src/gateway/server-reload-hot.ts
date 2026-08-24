@@ -47,6 +47,7 @@ import {
   revokeActiveSkillReviewsBeforeConfigPublication,
 } from "./server-reload-utils.js";
 import { startGatewayCronWithLogging } from "./server-runtime-services.js";
+import { readGatewayPersistedRuntimePluginSelections } from "./server-startup-model-runtime-selections.js";
 import { resolveHookClientIpConfig } from "./server/hook-client-ip-config.js";
 
 const MCP_RUNTIME_RELOAD_DISPOSE_TIMEOUT_MS = 5_000;
@@ -618,6 +619,8 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
       await refreshPreparedModelRuntimeSnapshots(nextConfig, {
         catalogMode: "static",
         allowGatewaySubagentBinding: true,
+        additionalRuntimePluginSelectionsByAgentId:
+          readGatewayPersistedRuntimePluginSelections(nextConfig),
         ...(pluginMetadataSnapshot ? { pluginMetadataSnapshot } : {}),
       });
     } catch (err) {

@@ -3864,6 +3864,72 @@ describe("prepareCliRunContext", () => {
     await context.preparedBackend.cleanup?.();
   });
 
+  it("removes only the message tool when server-side delivery owns publication", async () => {
+    const prepareExecution = vi.fn(async () => ({ toolAvailabilityEnforced: true as const }));
+    const mintMcpLoopbackClientGrant = vi.fn(createTestMcpLoopbackClientGrant);
+    setRawCliBackendForPrepareTest({
+      id: "claude-cli",
+      pluginId: "anthropic",
+      bundleMcp: true,
+      bundleMcpMode: "claude-config-file",
+      nativeToolMode: "selectable",
+      toolAvailabilityEnforcement: "prepare-execution",
+      prepareExecution,
+      config: {
+        command: "claude",
+        args: ["--print"],
+        output: "jsonl",
+        input: "stdin",
+        sessionMode: "existing",
+      },
+    });
+    setCliRunnerPrepareTestDeps({
+      getActiveMcpLoopbackRuntime: vi.fn(() => ({
+        port: 31783,
+        ownerToken: "loopback-owner-token",
+        nonOwnerToken: "loopback-non-owner-token",
+      })),
+      createMcpLoopbackServerConfig: vi.fn(createTestMcpLoopbackServerConfig),
+      mintMcpLoopbackClientGrant,
+      resolveMcpLoopbackScopedTools: vi.fn(() => ({
+        agentId: "main",
+        tools: [{ name: "read" }, { name: "message" }],
+      })),
+    });
+    const finalizePromptForResolvedTools = vi.fn(
+      ({ prompt, messageToolAvailable }: { prompt: string; messageToolAvailable: boolean }) =>
+        `${prompt}\nmessage-tool-available:${messageToolAvailable}`,
+    );
+
+    const context = await fixture.prepare({
+      provider: "claude-cli",
+      cliToolAvailability: { native: ["Read"], openClaw: ["read", "message"] },
+      disableMessageTool: true,
+      finalizePromptForResolvedTools,
+    });
+
+    expect(context.params.cliToolAvailability).toEqual({
+      native: ["Read"],
+      openClaw: ["read"],
+    });
+    expect(prepareExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolAvailability: {
+          native: ["Read"],
+          openClaw: ["read"],
+          mcp: ["mcp__openclaw__read"],
+        },
+      }),
+    );
+    expect(mintMcpLoopbackClientGrant.mock.calls[0]?.[0]?.context.toolsAllow).toEqual(["read"]);
+    expect(context.systemPromptReport.tools.entries.map((entry) => entry.name)).toEqual(["read"]);
+    expect(finalizePromptForResolvedTools).toHaveBeenCalledWith({
+      prompt: "latest ask",
+      messageToolAvailable: false,
+    });
+    await context.preparedBackend.cleanup?.();
+  });
+
   it.each([
     {
       name: "materializes exact availability when the caller did not provide it",

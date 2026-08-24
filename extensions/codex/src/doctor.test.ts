@@ -73,7 +73,9 @@ function managedDeps(version = CODEX_APP_SERVER_VERSION) {
   };
 }
 
-function createCheck(deps: ReturnType<typeof managedDeps>) {
+function createCheck(
+  deps: NonNullable<Parameters<typeof registerCodexManagedAppServerDoctorChecks>[1]>,
+) {
   let check: HealthCheck | undefined;
   registerCodexManagedAppServerDoctorChecks(
     {
@@ -158,6 +160,33 @@ describe("managed Codex doctor check", () => {
         requirement: `Codex ${CODEX_APP_SERVER_VERSION} must report its version within 5000 ms`,
       }),
     ]);
+  });
+
+  it("isolates the managed version probe from the operator Codex home", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-codex-doctor-version-"));
+    const operatorCodexHome = path.join(root, "operator-codex-home");
+    const command = path.join(root, "codex-version-probe");
+    try {
+      await fs.writeFile(
+        command,
+        `#!/bin/sh\nmkdir -p "$CODEX_HOME"\ntouch "$CODEX_HOME/probe-ran"\nprintf 'codex-cli ${CODEX_APP_SERVER_VERSION}\\n'\n`,
+        { mode: 0o700 },
+      );
+      const base = managedDeps();
+      const deps = {
+        resolveStartOptions: base.resolveStartOptions,
+        isDesktopCommand: base.isDesktopCommand,
+        resolveNativeCommand: vi.fn(() => command),
+      };
+      const check = createCheck(deps);
+      const ctx = context(config());
+      ctx.env = { ...process.env, CODEX_HOME: operatorCodexHome };
+
+      await expect(check.detect(ctx)).resolves.toEqual([]);
+      await expect(fs.stat(operatorCodexHome)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it.each([

@@ -51,6 +51,7 @@ import {
   resolveCurrentChannelTarget,
 } from "./channel-output-policy.js";
 import { resolveCronPayloadOutcome } from "./helpers.js";
+import { MORNING_BRIEF_CRON_JOB_ID } from "./morning-brief-content-gate.js";
 import { appendCronDeliveryInstruction } from "./run-delivery-trace.js";
 import {
   classifyEmbeddedAgentRunResultForModelFallback,
@@ -327,6 +328,10 @@ function createCronPromptExecutor(params: {
     callerOrigin: params.job.toolsAllowProvenance?.callerOrigin,
   });
   const { sourceDelivery } = params;
+  const messageToolBlockedByServerGate =
+    params.job.id === MORNING_BRIEF_CRON_JOB_ID && params.deliveryRequested === true;
+  const effectiveMessageToolEnabled =
+    sourceDelivery.messageTool.enabled && !messageToolBlockedByServerGate;
   const sourceReplyDeliveryMode = sourceDelivery.sourceReplyDeliveryMode;
   const messageChannel = sourceDelivery.target.channel ?? params.resolvedDelivery.channel;
   // Cron prompts may intentionally have nothing to report; both runners must agree on silence.
@@ -338,7 +343,7 @@ function createCronPromptExecutor(params: {
     prompt: string;
     messageToolAvailable: boolean;
   }) => {
-    const deliveryMessageToolAvailable = sourceDelivery.messageTool.enabled && messageToolAvailable;
+    const deliveryMessageToolAvailable = effectiveMessageToolEnabled && messageToolAvailable;
     if (sourceReplyDeliveryMode === "message_tool_only" && !deliveryMessageToolAvailable) {
       throw new Error(
         "Cron source delivery requires the message tool, but the selected runtime does not expose it. Allow the message tool, choose a compatible runtime, or use automatic delivery.",
@@ -660,6 +665,7 @@ function createCronPromptExecutor(params: {
                   params.agentPayload?.toolsAllow,
                   params.agentPayload?.toolsAllowIsDefault,
                 ),
+                disableMessageTool: messageToolBlockedByServerGate,
                 scheduledToolPolicy,
                 abortSignal: params.abortSignal,
                 onExecutionStarted: notifyExecutionStarted,
@@ -786,7 +792,7 @@ function createCronPromptExecutor(params: {
               ? "required"
               : "optional",
           requireExplicitMessageTarget: sourceDelivery.messageTool.requireExplicitTarget,
-          disableMessageTool: !sourceDelivery.messageTool.enabled,
+          disableMessageTool: !effectiveMessageToolEnabled,
           forceMessageTool: sourceDelivery.messageTool.force,
           allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
           contextEngineLogicalTurnLease,

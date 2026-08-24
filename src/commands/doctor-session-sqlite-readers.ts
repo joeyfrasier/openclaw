@@ -18,6 +18,7 @@ import type { SessionStoreTarget as ResolvedSessionStoreTarget } from "../config
 import { resolveAllAgentSessionStoreCandidateTargetsSync } from "../config/sessions/targets.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
+import { withArtifactPreservingSqliteReadLocationSync } from "../infra/sqlite-readonly-operations.js";
 import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
 import { tableExists, tableHasColumn } from "../state/openclaw-state-db-schema-helpers.js";
 
@@ -367,15 +368,25 @@ function readSessionDatabase<T>(
   if (!fs.existsSync(sqlitePath)) {
     return { ok: true, value: undefined };
   }
-  let database: DatabaseSync | undefined;
   try {
-    database = openNodeSqliteDatabase(sqlitePath, { readOnly: true });
-    return { ok: true, value: read(database) };
+    return {
+      ok: true,
+      value: withReadOnlySqliteDatabase(sqlitePath, read),
+    };
   } catch (error) {
     return { error, ok: false };
-  } finally {
-    database?.close();
   }
+}
+
+function withReadOnlySqliteDatabase<T>(sqlitePath: string, read: (database: DatabaseSync) => T): T {
+  return withArtifactPreservingSqliteReadLocationSync(sqlitePath, (location) => {
+    const database = openNodeSqliteDatabase(location, { readOnly: true });
+    try {
+      return read(database);
+    } finally {
+      database.close();
+    }
+  });
 }
 
 function resolveSessionIdentityProjection(database: DatabaseSync) {
@@ -410,66 +421,64 @@ export function readOnlySqliteDbStats(target: SessionStoreTarget): ReadOnlySqlit
       },
     };
   }
-  let database: DatabaseSync | undefined;
   try {
-    database = openNodeSqliteDatabase(sqlitePath, { readOnly: true });
-    const hasTranscriptEvents = tableExists(database, "transcript_events");
-    const integrityRow = database.prepare("PRAGMA quick_check").get() as
-      | { quick_check?: unknown }
-      | undefined;
-    if (!hasTranscriptEvents) {
-      return {
-        ok: true,
-        stats: {
-          dbSizeBytes: sizeFor(sqlitePath),
-          integrityCheck:
-            typeof integrityRow?.quick_check === "string" ? integrityRow.quick_check : undefined,
-          largestSessions: [],
-          totalTranscriptRowBytes: 0,
-          walSizeBytes: sizeFor(`${sqlitePath}-wal`),
-        },
-      };
-    }
-    const totalRow = database
-      .prepare("SELECT COALESCE(SUM(LENGTH(event_json)), 0) AS row_bytes FROM transcript_events")
-      .get() as { row_bytes?: unknown } | undefined;
-    const largestRows = database
-      .prepare(
-        `
+    return withReadOnlySqliteDatabase(sqlitePath, (database) => {
+      const hasTranscriptEvents = tableExists(database, "transcript_events");
+      const integrityRow = database.prepare("PRAGMA quick_check").get() as
+        | { quick_check?: unknown }
+        | undefined;
+      if (!hasTranscriptEvents) {
+        return {
+          ok: true,
+          stats: {
+            dbSizeBytes: sizeFor(sqlitePath),
+            integrityCheck:
+              typeof integrityRow?.quick_check === "string" ? integrityRow.quick_check : undefined,
+            largestSessions: [],
+            totalTranscriptRowBytes: 0,
+            walSizeBytes: sizeFor(`${sqlitePath}-wal`),
+          },
+        };
+      }
+      const totalRow = database
+        .prepare("SELECT COALESCE(SUM(LENGTH(event_json)), 0) AS row_bytes FROM transcript_events")
+        .get() as { row_bytes?: unknown } | undefined;
+      const largestRows = database
+        .prepare(
+          `
           SELECT session_id, COUNT(*) AS events, COALESCE(SUM(LENGTH(event_json)), 0) AS row_bytes
           FROM transcript_events
           GROUP BY session_id
           ORDER BY row_bytes DESC, events DESC, session_id ASC
           LIMIT 5
         `,
-      )
-      .all() as Array<{ events?: unknown; row_bytes?: unknown; session_id?: unknown }>;
-    return {
-      ok: true,
-      stats: {
-        dbSizeBytes: sizeFor(sqlitePath),
-        integrityCheck:
-          typeof integrityRow?.quick_check === "string" ? integrityRow.quick_check : undefined,
-        largestSessions: largestRows.flatMap((row) => {
-          if (typeof row.session_id !== "string") {
-            return [];
-          }
-          return [
-            {
-              events: sqliteNumber(row.events),
-              rowBytes: sqliteNumber(row.row_bytes),
-              sessionId: row.session_id,
-            },
-          ];
-        }),
-        totalTranscriptRowBytes: sqliteNumber(totalRow?.row_bytes),
-        walSizeBytes: sizeFor(`${sqlitePath}-wal`),
-      },
-    };
+        )
+        .all() as Array<{ events?: unknown; row_bytes?: unknown; session_id?: unknown }>;
+      return {
+        ok: true,
+        stats: {
+          dbSizeBytes: sizeFor(sqlitePath),
+          integrityCheck:
+            typeof integrityRow?.quick_check === "string" ? integrityRow.quick_check : undefined,
+          largestSessions: largestRows.flatMap((row) => {
+            if (typeof row.session_id !== "string") {
+              return [];
+            }
+            return [
+              {
+                events: sqliteNumber(row.events),
+                rowBytes: sqliteNumber(row.row_bytes),
+                sessionId: row.session_id,
+              },
+            ];
+          }),
+          totalTranscriptRowBytes: sqliteNumber(totalRow?.row_bytes),
+          walSizeBytes: sizeFor(`${sqlitePath}-wal`),
+        },
+      };
+    });
   } catch (error) {
     return { error, ok: false };
-  } finally {
-    database?.close();
   }
 }
 
@@ -563,9 +572,7 @@ export function readOnlySqliteTranscriptSessionIds(sqlitePath: string): string[]
   if (!fs.existsSync(sqlitePath)) {
     return [];
   }
-  let database: DatabaseSync | undefined;
-  try {
-    database = openNodeSqliteDatabase(sqlitePath, { readOnly: true });
+  return withReadOnlySqliteDatabase(sqlitePath, (database) => {
     if (!tableExists(database, "transcript_events")) {
       return [];
     }
@@ -575,9 +582,7 @@ export function readOnlySqliteTranscriptSessionIds(sqlitePath: string): string[]
     return rows
       .filter((row): row is { session_id: string } => typeof row.session_id === "string")
       .map((row) => row.session_id);
-  } finally {
-    database?.close();
-  }
+  });
 }
 
 // Read-only transcript snapshot reader for dry-run detection phase.
@@ -597,26 +602,24 @@ export function readOnlySqliteTranscriptSnapshot(
   if (!fs.existsSync(sqlitePath)) {
     return { ok: false, error: new Error(`SQLite database not found: ${sqlitePath}`) };
   }
-  let database: DatabaseSync | undefined;
   try {
-    database = openNodeSqliteDatabase(sqlitePath, { readOnly: true });
-    const rows = database
-      .prepare(
-        "SELECT event_json, seq FROM transcript_events WHERE session_id = ? ORDER BY seq ASC",
-      )
-      .all(sessionId) as Array<{ event_json?: string; seq?: number }>;
-    const validRows = rows.filter(
-      (row): row is { event_json: string; seq: number } =>
-        typeof row.event_json === "string" && typeof row.seq === "number",
-    );
-    return {
-      ok: true,
-      rows: validRows.map((row) => ({ eventJson: row.event_json, seq: row.seq })),
-    };
+    return withReadOnlySqliteDatabase(sqlitePath, (database) => {
+      const rows = database
+        .prepare(
+          "SELECT event_json, seq FROM transcript_events WHERE session_id = ? ORDER BY seq ASC",
+        )
+        .all(sessionId) as Array<{ event_json?: string; seq?: number }>;
+      const validRows = rows.filter(
+        (row): row is { event_json: string; seq: number } =>
+          typeof row.event_json === "string" && typeof row.seq === "number",
+      );
+      return {
+        ok: true,
+        rows: validRows.map((row) => ({ eventJson: row.event_json, seq: row.seq })),
+      };
+    });
   } catch (error) {
     return { ok: false, error };
-  } finally {
-    database?.close();
   }
 }
 
@@ -630,49 +633,47 @@ export function readOnlySqliteTranscriptStorageSnapshot(
   if (!fs.existsSync(sqlitePath)) {
     return { ok: false, error: new Error(`SQLite database not found: ${sqlitePath}`) };
   }
-  let database: DatabaseSync | undefined;
   try {
-    database = openNodeSqliteDatabase(sqlitePath, { readOnly: true });
-    const rows = database
-      .prepare(
-        "SELECT created_at, event_json, seq FROM transcript_events WHERE session_id = ? ORDER BY seq ASC",
-      )
-      .all(sessionId) as Array<{
-      created_at?: unknown;
-      event_json?: unknown;
-      seq?: unknown;
-    }>;
-    const sessionKeyRow = database
-      .prepare("SELECT session_key FROM session_windows WHERE session_id = ? LIMIT 1")
-      .get(sessionId) as { session_key?: unknown } | undefined;
-    const storageRows: SqliteTranscriptStorageRow[] = [];
-    for (const row of rows) {
-      if (
-        typeof row.created_at !== "number" ||
-        typeof row.event_json !== "string" ||
-        typeof row.seq !== "number"
-      ) {
-        return {
-          ok: false,
-          error: new Error(`Invalid transcript row metadata for session ${sessionId}`),
-        };
+    return withReadOnlySqliteDatabase(sqlitePath, (database) => {
+      const rows = database
+        .prepare(
+          "SELECT created_at, event_json, seq FROM transcript_events WHERE session_id = ? ORDER BY seq ASC",
+        )
+        .all(sessionId) as Array<{
+        created_at?: unknown;
+        event_json?: unknown;
+        seq?: unknown;
+      }>;
+      const sessionKeyRow = database
+        .prepare("SELECT session_key FROM session_windows WHERE session_id = ? LIMIT 1")
+        .get(sessionId) as { session_key?: unknown } | undefined;
+      const storageRows: SqliteTranscriptStorageRow[] = [];
+      for (const row of rows) {
+        if (
+          typeof row.created_at !== "number" ||
+          typeof row.event_json !== "string" ||
+          typeof row.seq !== "number"
+        ) {
+          return {
+            ok: false,
+            error: new Error(`Invalid transcript row metadata for session ${sessionId}`),
+          };
+        }
+        storageRows.push({
+          createdAt: row.created_at,
+          eventJson: row.event_json,
+          seq: row.seq,
+        });
       }
-      storageRows.push({
-        createdAt: row.created_at,
-        eventJson: row.event_json,
-        seq: row.seq,
-      });
-    }
-    return {
-      ok: true,
-      rows: storageRows,
-      ...(typeof sessionKeyRow?.session_key === "string"
-        ? { sessionKey: sessionKeyRow.session_key }
-        : {}),
-    };
+      return {
+        ok: true,
+        rows: storageRows,
+        ...(typeof sessionKeyRow?.session_key === "string"
+          ? { sessionKey: sessionKeyRow.session_key }
+          : {}),
+      };
+    });
   } catch (error) {
     return { ok: false, error };
-  } finally {
-    database?.close();
   }
 }

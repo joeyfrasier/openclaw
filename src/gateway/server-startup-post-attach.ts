@@ -45,6 +45,7 @@ import type { GatewaySidecarStartupMode } from "./server-sidecar-startup-mode.js
 import { scheduleContextCachePrewarm } from "./server-startup-context-cache-prewarm.js";
 import { scheduleGatewayHandlerPrewarm } from "./server-startup-handler-prewarm.js";
 import type { logGatewayStartup } from "./server-startup-log.js";
+import { readGatewayPersistedRuntimePluginSelections } from "./server-startup-model-runtime-selections.js";
 import {
   createGatewayStartupOutcomeRecorder,
   formatGatewayStartupOutcomes,
@@ -524,11 +525,19 @@ async function publishConfiguredModelRuntimeSnapshots(params: {
   if (params.isCurrent?.() === false) {
     return;
   }
-  await refreshPreparedModelRuntimeSnapshots(params.getConfig ?? params.cfg, {
+  const sourceConfig = params.getConfig ?? (() => params.cfg);
+  const currentConfig = await sourceConfig();
+  if (params.isCurrent?.() === false) {
+    return;
+  }
+  await refreshPreparedModelRuntimeSnapshots(currentConfig, {
     gatewayLifecycle: true,
     catalogMode: "static",
     allowGatewaySubagentBinding: true,
     ...(params.isCurrent ? { isPublicationCurrent: params.isCurrent } : {}),
+    additionalRuntimePluginSelectionsByAgentId: readGatewayPersistedRuntimePluginSelections(
+      currentConfig,
+    ),
     ...(params.pluginMetadataSnapshot
       ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }
       : {}),

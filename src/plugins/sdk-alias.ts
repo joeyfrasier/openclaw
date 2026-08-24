@@ -8,6 +8,7 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
 import { tryReadJsonSync } from "../infra/json-files.js";
 import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
+import { isArtifactPreservingPluginLoaderReadActive } from "./artifact-preserving-loader-scope.js";
 import { resolveOpenClawDevSourceRoot } from "./dev-source-root.js";
 import { PluginLruCache } from "./plugin-cache-primitives.js";
 
@@ -157,6 +158,9 @@ function resolvePluginLoaderJitiFsCacheDir(params: LoaderModuleResolveParams = {
 function resolvePluginLoaderJitiFsCacheOption(
   params: LoaderModuleResolveParams = {},
 ): false | string {
+  if (isArtifactPreservingPluginLoaderReadActive()) {
+    return false;
+  }
   return shouldUseJitiFsCache() ? resolvePluginLoaderJitiFsCacheDir(params) : false;
 }
 

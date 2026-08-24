@@ -25,7 +25,7 @@ afterEach(async () => {
 
 function buildCopiedStateConfig(): OpenClawConfig {
   return {
-    plugins: { enabled: true, slots: { memory: "none" } },
+    plugins: { enabled: true, allow: [PLUGIN_ID], slots: { memory: "none" } },
     models: {
       providers: {
         "copied-session-proof": {

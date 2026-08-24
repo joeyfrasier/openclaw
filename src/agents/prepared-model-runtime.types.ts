@@ -115,6 +115,10 @@ export type PreparedModelRuntimeRefreshOptions = {
   catalogMode?: PreparedModelRuntimeCatalogMode;
   onBuildStats?: (stats: PreparedModelRuntimeBuildStats) => void;
   allowGatewaySubagentBinding?: boolean;
+  additionalRuntimePluginSelectionsByAgentId?: ReadonlyMap<
+    string,
+    readonly AgentHarnessPluginSelection[]
+  >;
   pluginMetadataSnapshot?: PluginMetadataSnapshot;
   isPublicationCurrent?: () => boolean;
 };

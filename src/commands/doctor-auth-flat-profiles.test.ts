@@ -34,6 +34,7 @@ import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
+import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { buildStatusText } from "../status/status-text.js";
 import {
   createOpenClawTestState,
@@ -269,6 +270,37 @@ describe("maybeMigrateAuthProfileJsonStoresToSqlite", () => {
     });
     expect(fs.existsSync(authPath)).toBe(false);
     expectMigratedArchive(authPath);
+  });
+
+  it("keeps lint-only detection out of the writable state lifecycle", async () => {
+    const state = await makeTestState();
+    const authPath = await writeLegacyAuthProfilesJson(state, {
+      version: 1,
+      profiles: {
+        "openai:default": {
+          type: "api_key",
+          provider: "openai",
+          key: "not-a-real-key",
+        },
+      },
+    });
+    const stateDatabasePath = resolveOpenClawStateSqlitePath(state.env);
+    const prompter = makePrompter(true);
+    expect(fs.existsSync(stateDatabasePath)).toBe(false);
+
+    const result = await maybeMigrateAuthProfileJsonStoresToSqlite({
+      cfg: {},
+      prompter,
+      readOnly: true,
+      env: state.env,
+    });
+
+    expect(result.detected).toContain(authPath);
+    expect(prompter.confirmAutoFix).not.toHaveBeenCalled();
+    expect(fs.existsSync(authPath)).toBe(true);
+    expect(fs.existsSync(stateDatabasePath)).toBe(false);
+    expectNoMigratedArchive(authPath);
+    expect(loadPersistedAuthProfileStore(state.agentDir())).toBeNull();
   });
 
   it("migrates the inherited auth owner after it leaves the explicit roster", async () => {

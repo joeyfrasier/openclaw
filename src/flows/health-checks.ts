@@ -53,6 +53,12 @@ export interface HealthCheckContext {
   readonly mode: HealthCheckMode;
   readonly runtime: RuntimeEnv;
   readonly cfg: OpenClawConfig;
+  /**
+   * Source filesystem view for checks that inspect non-database runtime artifacts.
+   * Doctor lint may point `env` at an isolated SQLite snapshot while preserving
+   * this environment for read-only inspection of the operator's actual files.
+   */
+  readonly sourceFilesystemEnv?: NodeJS.ProcessEnv;
   readonly env?: NodeJS.ProcessEnv;
   readonly cwd?: string;
   readonly configPath?: string;

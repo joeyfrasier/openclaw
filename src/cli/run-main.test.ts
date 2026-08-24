@@ -278,7 +278,8 @@ describe("shouldStartProxyForCli", () => {
     expect(
       shouldStartProxyForCli(["node", "openclaw", "doctor", "--state-sqlite=compact", "--json"]),
     ).toBe(false);
-    expect(shouldStartProxyForCli(["node", "openclaw", "doctor", "--lint"])).toBe(true);
+    expect(shouldStartProxyForCli(["node", "openclaw", "doctor", "--lint"])).toBe(false);
+    expect(shouldStartProxyForCli(["node", "openclaw", "doctor"])).toBe(true);
   });
 });
 

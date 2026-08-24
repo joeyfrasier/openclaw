@@ -802,7 +802,7 @@ export function detectStateIntegrityHealthIssues(
     ? resolveSessionTranscriptsDirForAgent(agentId, env, homedir)
     : undefined;
   const storePath = agentId
-    ? resolveSessionStorePathCore(cfg.session?.store, { agentId })
+    ? resolveSessionStorePathCore(cfg.session?.store, { agentId, env })
     : undefined;
   const storeDir = storePath ? path.dirname(storePath) : undefined;
   const requireOAuthDir = shouldRequireOAuthDir(cfg, env);
@@ -1077,7 +1077,7 @@ export async function noteStateIntegrity(
     ? resolveSessionTranscriptsDirForAgent(agentId, env, homedir)
     : undefined;
   const storePath = agentId
-    ? resolveSessionStorePathCore(cfg.session?.store, { agentId })
+    ? resolveSessionStorePathCore(cfg.session?.store, { agentId, env })
     : undefined;
   const storeDir = storePath ? path.dirname(storePath) : undefined;
   const absoluteStorePath = storePath ? path.resolve(storePath) : undefined;

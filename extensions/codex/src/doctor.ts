@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { resolveDefaultModelForAgent } from "openclaw/plugin-sdk/agent-runtime";
 import { listAgentIds, resolveAgentDir } from "openclaw/plugin-sdk/agent-scope-runtime";
 import { resolveEffectiveAgentRuntime } from "openclaw/plugin-sdk/command-auth-native";
@@ -65,23 +68,35 @@ function parseCodexVersion(output: string): string | undefined {
 
 function runVersionCommand(command: string): Promise<VersionCommandResult> {
   return new Promise((resolve, reject) => {
-    execFile(
-      command,
-      ["--version"],
-      {
-        encoding: "utf8",
-        maxBuffer: CODEX_VERSION_MAX_BUFFER_BYTES,
-        timeout: CODEX_VERSION_TIMEOUT_MS,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(readErrorMessage(error), { cause: error }));
-          return;
-        }
-        resolve({ stdout, stderr });
-      },
-    );
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-codex-version-"));
+    const cleanup = () => fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    try {
+      execFile(
+        command,
+        ["--version"],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CODEX_HOME: path.join(temporaryRoot, "codex-home"),
+          },
+          maxBuffer: CODEX_VERSION_MAX_BUFFER_BYTES,
+          timeout: CODEX_VERSION_TIMEOUT_MS,
+          windowsHide: true,
+        },
+        (error, stdout, stderr) => {
+          cleanup();
+          if (error) {
+            reject(new Error(readErrorMessage(error), { cause: error }));
+            return;
+          }
+          resolve({ stdout, stderr });
+        },
+      );
+    } catch (error) {
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
 

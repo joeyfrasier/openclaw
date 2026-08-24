@@ -80,6 +80,7 @@ async function runAuthProfileHealth(ctx: DoctorHealthFlowContext): Promise<void>
   await maybeMigrateAuthProfileJsonStoresToSqlite({
     cfg: ctx.cfg,
     prompter: ctx.prompter,
+    readOnly: !ctx.prompter.shouldRepair,
     ...(ctx.env ? { env: ctx.env } : {}),
   });
   await maybeMigrateLegacyPluginModelCatalogs({

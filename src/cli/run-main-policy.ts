@@ -122,6 +122,13 @@ export function shouldStartProxyForCli(argv: string[]): boolean {
   if (isBareParentDefaultHelpArgv(policyArgv)) {
     return false;
   }
+  // Doctor lint is a local, artifact-preserving inspection command. Starting the
+  // managed proxy here both emits diagnostics before the JSON protocol owns
+  // stderr and installs a network-capable process-global runtime that lint does
+  // not need. Interactive/repair Doctor commands keep the normal proxy policy.
+  if (primary === "doctor" && policyArgv.includes("--lint")) {
+    return false;
+  }
   return resolveCliNetworkProxyPolicy(policyArgv) === "default";
 }
 

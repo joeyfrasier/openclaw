@@ -18,6 +18,10 @@ import {
 import { openNodeSqliteDatabase } from "../../infra/node-sqlite.js";
 import { isPathInside } from "../../infra/path-guards.js";
 import { resolveSqliteDatabaseFilePaths } from "../../infra/sqlite-files.js";
+import {
+  isArtifactPreservingSqliteReadLocationsActive,
+  withArtifactPreservingSqliteReadLocationSync,
+} from "../../infra/sqlite-readonly-operations.js";
 import { readSqliteUserVersion } from "../../infra/sqlite-user-version.js";
 import { registerSqliteCacheExitClose } from "../../infra/sqlite-wal.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
@@ -369,6 +373,27 @@ function inspectAuthProfileJsonCellReadOnly(
           { env: databaseTarget.env, path: databaseTarget.path },
         ) ?? { status: "missing", reason: "database" }
       );
+    } catch {
+      return isMissingDatabasePath(databaseTarget.path)
+        ? { status: "missing", reason: "database" }
+        : { status: "unreadable" };
+    }
+  }
+  if (isArtifactPreservingSqliteReadLocationsActive()) {
+    try {
+      return withArtifactPreservingSqliteReadLocationSync(databaseTarget.path, (location) => {
+        const db = openNodeSqliteDatabase(location, { readOnly: true });
+        try {
+          db.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
+          if (readSqliteUserVersion(db) > OPENCLAW_AGENT_SCHEMA_VERSION) {
+            return { status: "unreadable" };
+          }
+          return inspectAuthProfileJsonCell(db, target, "agent");
+        } finally {
+          clearNodeSqliteKyselyCacheForDatabase(db);
+          db.close();
+        }
+      });
     } catch {
       return isMissingDatabasePath(databaseTarget.path)
         ? { status: "missing", reason: "database" }

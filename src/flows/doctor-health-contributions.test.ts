@@ -2244,6 +2244,7 @@ describe("doctor health contributions", () => {
     expect(mocks.maybeMigrateAuthProfileJsonStoresToSqlite).toHaveBeenCalledWith({
       cfg: ctx.cfg,
       prompter: ctx.prompter,
+      readOnly: false,
     });
     expect(mocks.maybeRepairLegacyOAuthSidecarProfiles.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.maybeMigrateAuthProfileJsonStoresToSqlite.mock.invocationCallOrder[0]!,
