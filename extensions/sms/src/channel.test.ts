@@ -321,6 +321,26 @@ describe("smsPlugin outbound", () => {
     ).toEqual({ ok: true, to: "+15551234567" });
   });
 
+  it("fails closed when an outbound target is outside allowTo", () => {
+    const cfg = {
+      channels: {
+        sms: {
+          accountSid: "AC123",
+          authToken: "secret",
+          fromNumber: "+15557654321",
+          allowTo: ["+15551234567"],
+        },
+      },
+    };
+    expect(smsPlugin.outbound?.resolveTarget?.({ cfg, to: "+15551234567" })).toEqual({
+      ok: true,
+      to: "+15551234567",
+    });
+    expect(smsPlugin.outbound?.resolveTarget?.({ cfg, to: "+15559876543" })).toMatchObject({
+      ok: false,
+    });
+  });
+
   it("hosts and sends outbound media as MMS with an ordered multipart receipt", async () => {
     sendSmsViaTwilio
       .mockResolvedValueOnce({

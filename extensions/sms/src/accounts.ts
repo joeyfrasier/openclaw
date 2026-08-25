@@ -37,6 +37,10 @@ function parseList(raw: unknown): string[] {
   return entries.map((entry) => normalizeSmsAllowFrom(String(entry))).filter(Boolean);
 }
 
+function parseOptionalList(raw: unknown): string[] | undefined {
+  return raw === undefined ? undefined : parseList(raw);
+}
+
 function parseTextChunkLimit(raw: unknown): number {
   if (typeof raw === "number" && Number.isSafeInteger(raw) && raw > 0) {
     return raw;
@@ -132,6 +136,13 @@ export function resolveSmsAccount(
       envDisableSignatureValidation === "true",
     dmPolicy: merged.dmPolicy ?? "pairing",
     allowFrom: parseList(merged.allowFrom ?? envAllowFrom),
+    allowTo: parseOptionalList(merged.allowTo),
+    execApprovals: merged.execApprovals
+      ? {
+          enabled: merged.execApprovals.enabled,
+          approvers: parseList(merged.execApprovals.approvers),
+        }
+      : undefined,
     textChunkLimit: parseTextChunkLimit(merged.textChunkLimit ?? envTextChunkLimit),
   };
 }
