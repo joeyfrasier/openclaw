@@ -426,6 +426,7 @@ async function dispatchNativeProgressScenario(params: {
   events: typeof mockedReplyOptionEvents;
   finalPayload?: TestReplyPayload;
   progress?: {
+    commentary?: boolean;
     label?: string | false;
     maxLineChars?: number;
     nativeTaskCards?: true;
@@ -3399,6 +3400,53 @@ describe("dispatchPreparedSlackMessage preview fallback", () => {
     expectNativeStreamText(`\n${FINAL_REPLY_TEXT}`);
   });
 
+  it("routes cumulative commentary once and appends only suffix deltas", async () => {
+    const sentence = "Accepted. I’m checking the workspace before replying.";
+    await dispatchNativeProgressScenario({
+      progress: {
+        nativeTaskCards: true,
+        commentary: true,
+        label: false,
+        toolProgress: false,
+      },
+      events: [
+        {
+          kind: "item",
+          itemKind: "preamble",
+          itemId: "commentary-1",
+          progressText: "Accepted. I",
+        },
+        {
+          kind: "item",
+          itemKind: "preamble",
+          itemId: "commentary-1",
+          progressText: "Accepted. I’m",
+        },
+        {
+          kind: "item",
+          itemKind: "preamble",
+          itemId: "commentary-1",
+          progressText: sentence,
+        },
+      ],
+    });
+
+    // The id-less commentary payload lane produced the leading fragment in the
+    // incident. Slack owns the native compositor callback instead.
+    expect(capturedReplyOptions?.commentaryPayloadsEnabled).toBeUndefined();
+    const streamedDeltas = [...startSlackStreamMock.mock.calls, ...appendSlackStreamMock.mock.calls]
+      .map((call) => requireRecord(call[0], "native commentary append").text)
+      .filter((text): text is string => typeof text === "string");
+    expect(streamedDeltas).toEqual([
+      "Accepted. I",
+      "’m",
+      " checking the workspace before replying.",
+    ]);
+    expect(streamedDeltas.join("")).toBe(sentence);
+    expect(streamedDeltas.join("").match(/Accepted\./gu) ?? []).toHaveLength(1);
+    expect(streamedDeltas.slice(1).every((delta) => !delta.includes("Accepted."))).toBe(true);
+  });
+
   it("keeps final fallback in the planned thread when native Slack progress start fails", async () => {
     startSlackStreamMock.mockRejectedValueOnce(new Error("start stream failed"));
     mockedReplyThreadTsSequence = [THREAD_TS, undefined];
@@ -4028,7 +4076,7 @@ describe("dispatchPreparedSlackMessage preview fallback", () => {
     );
 
     expect(capturedReplyOptions?.commentaryProgressEnabled).toBe(true);
-    expect(capturedReplyOptions?.commentaryPayloadsEnabled).toBe(true);
+    expect(capturedReplyOptions?.commentaryPayloadsEnabled).toBeUndefined();
     expect(capturedReplyOptions?.shouldDeliverCommentaryPayloads?.()).toBe(false);
     expect(capturedReplyOptions?.suppressDefaultToolProgressMessages).toBe(true);
     expectLastDraftUpdateText(draftStream, "_Preparing the smallest fix_");
