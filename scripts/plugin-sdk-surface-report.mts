@@ -413,7 +413,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: embedded foreground prompt context builder.
       // -4: approval display sanitizers moved to a non-public leaf module
       //     (exec-approval-text-sanitize) to break the exec-approvals cycle.
-      2578,
+      // +2: canonical session-model selection and auxiliary runtime-auth preparation.
+      2580,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
