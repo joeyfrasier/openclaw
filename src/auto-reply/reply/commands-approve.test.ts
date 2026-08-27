@@ -511,6 +511,50 @@ describe("handleApproveCommand", () => {
     }
   });
 
+  it("passes the typed decision to a channel capability before gateway resolution", async () => {
+    const approvalCapability = {
+      authorizeActorAction: ({ approvalKind }) => ({
+        authorized: approvalKind === "exec",
+      }),
+      resolveApproveCommandBehavior: ({ approvalKind, decision }) =>
+        approvalKind === "exec" && decision === "allow-always"
+          ? { kind: "reply" as const, text: "SMS approvals support allow-once or deny only." }
+          : { kind: "allow" as const },
+    } satisfies ChannelApprovalCapability;
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "sms",
+          plugin: {
+            ...createChannelTestPluginBase({ id: "sms", label: "SMS" }),
+            approvalCapability,
+          },
+          source: "test",
+        },
+      ]),
+    );
+
+    const result = await handleApproveCommand(
+      buildApproveParams(
+        "/approve abc12345 allow-always",
+        { commands: { text: true }, channels: { sms: { allowFrom: ["+15551234567"] } } },
+        {
+          Provider: "sms",
+          Surface: "sms",
+          SenderId: "+15551234567",
+          AccountId: "default",
+        },
+      ),
+      true,
+    );
+
+    expect(result).toEqual({
+      shouldContinue: false,
+      reply: { text: "SMS approvals support allow-once or deny only." },
+    });
+    expect(resolveApprovalOverGatewayMock).not.toHaveBeenCalled();
+  });
+
   it("probes authorized legacy kinds explicitly without inferring from the id", async () => {
     resolveApprovalOverGatewayMock.mockRejectedValueOnce(
       new Error("unknown or expired approval id"),

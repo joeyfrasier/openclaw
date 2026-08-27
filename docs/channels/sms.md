@@ -1,5 +1,5 @@
 ---
-summary: "Twilio SMS/MMS setup, access controls, webhooks, and delivery status"
+summary: "Twilio SMS/MMS setup, access controls, owner approvals, webhooks, and delivery status"
 read_when:
   - You want to connect OpenClaw to SMS or MMS through Twilio
   - You need SMS/MMS webhook or allowlist setup
@@ -158,6 +158,9 @@ All keys live under `channels.sms` (and per account under `channels.sms.accounts
 | `dangerouslyDisableSignatureValidation` | `false`         | Skip `X-Twilio-Signature` checks; local tunnel testing only.                           |
 | `dmPolicy`                              | `"pairing"`     | `pairing`, `allowlist`, `open`, or `disabled`.                                         |
 | `allowFrom`                             | `[]`            | Allowed sender numbers in E.164, or `"*"` with `dmPolicy: "open"`.                     |
+| `allowTo`                               | —               | Optional outbound E.164 allowlist. When present, every SMS/MMS target must match.      |
+| `execApprovals.enabled`                 | `false`         | Enable owner-restricted SMS decisions for exec approvals.                              |
+| `execApprovals.approvers`               | `[]`            | E.164 reviewers; each must also appear in `allowFrom` and `allowTo`.                   |
 | `textChunkLimit`                        | `1500`          | Maximum characters per outbound SMS chunk.                                             |
 | `accounts`, `defaultAccount`            | —               | Multi-account map and default account id.                                              |
 
@@ -303,6 +306,75 @@ Set `defaultTo` when automation or agent-initiated delivery should have a defaul
   },
 }
 ```
+
+`allowTo` is a final outbound boundary. When the key is present, OpenClaw rejects text and media sends to every number not listed, including calls that bypass normal target resolution. An empty `allowTo` blocks all outbound SMS/MMS. Use it for owner-only installations.
+
+## Owner-only exec approvals
+
+SMS can resolve pending exec approvals with `allow-once` or `deny`. It never accepts `allow-always`, plugin approvals, or durable policy changes. The approval command travels through the canonical OpenClaw approval service, which owns expiry, requester and reviewer custody, action binding, first-decision settlement, and one-time redemption.
+
+The SMS prompt contains only a short opaque approval ID, a truncated action fingerprint, expiry, and the two valid reply commands. It does not include the command, working directory, environment values, raw output, or private message content.
+
+Configure one exact E.164 owner across inbound, outbound, approval, and forwarding boundaries:
+
+```json5
+{
+  channels: {
+    sms: {
+      enabled: true,
+      accountSid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      authToken: { source: "store", provider: "default", id: "TWILIO_AUTH_TOKEN" },
+      fromNumber: "+15551234567",
+      publicWebhookUrl: "https://gateway.example.com/webhooks/sms/owner",
+      webhookPath: "/webhooks/sms/owner",
+      dmPolicy: "allowlist",
+      allowFrom: ["+15557654321"],
+      allowTo: ["+15557654321"],
+      execApprovals: {
+        enabled: true,
+        approvers: ["+15557654321"],
+      },
+    },
+  },
+  approvals: {
+    exec: {
+      enabled: true,
+      mode: "targets",
+      agentFilter: ["main"],
+      sessionFilter: ["agent:main:sms:direct:"],
+      targets: [{ channel: "sms", accountId: "default", to: "+15557654321" }],
+    },
+  },
+}
+```
+
+Keep `dangerouslyDisableSignatureValidation` unset or `false`. The configured `publicWebhookUrl` must exactly match the HTTPS URL Twilio signs and calls. Point only that path at the Gateway; do not expose the full Gateway HTTP surface.
+
+Reply with one command copied from the prompt:
+
+```text
+/approve abcdef12 allow-once
+/approve abcdef12 deny
+```
+
+Malformed IDs, unauthorized senders, unavailable or expired approvals, conflicting replays, and `allow-always` fail closed. Provider delivery failure leaves the approval pending until another configured approval surface resolves it or it expires.
+
+### Security model
+
+Treat SMS as possession of a phone number, not proof of a person. Use a dedicated Twilio number or Messaging Service, protect both the Twilio account and the receiving mobile account, and disable SMS approvals immediately after number loss, reassignment, or suspected SIM takeover.
+
+| Threat                            | Required control                                                                                                 | Failure behavior                                                    |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Forged webhook                    | Exact HTTPS callback URL plus `X-Twilio-Signature` validation against the account auth token                     | Reject before message admission                                     |
+| Unauthorized or spoofed sender    | `dmPolicy: "allowlist"` plus the same exact E.164 value in `allowFrom`, `allowTo`, and `execApprovals.approvers` | No conversation or approval authority                               |
+| Replay or duplicate reply         | Twilio Message SID deduplication plus the canonical first-decision approval ledger                               | Idempotent same decision; conflicting replay rejected               |
+| Stale approval                    | Gateway-owned expiry                                                                                             | Unknown or expired; no execution authority                          |
+| Changed action                    | Immutable system-run binding over argv, cwd, agent, session, environment, and mutable file operand               | `APPROVAL_REQUEST_MISMATCH` or environment mismatch                 |
+| Provider outage or delivery error | Keep another approval surface available                                                                          | Approval remains pending or expires; never auto-allow               |
+| SMS disclosure                    | Redacted renderer and short approval slug/fingerprint only                                                       | Command, cwd, environment, output, and message content stay off SMS |
+| Phone/SIM compromise              | Short expiry, allow-once/deny only, dedicated numbers, carrier/account protections                               | Disable the channel and fall back to another surface                |
+
+Twilio validates webhook signatures against the exact URL and request parameters; see [Twilio webhook security](https://www.twilio.com/docs/usage/webhooks/webhooks-security). Inbound SMS webhooks are synchronous form-encoded requests configured on a number or Messaging Service; see [Twilio incoming message webhooks](https://www.twilio.com/docs/messaging/guides/webhook-request?display=embedded). Before production use in the United States, complete the registration required for the selected sender type: [A2P 10DLC](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc) or [toll-free verification](https://www.twilio.com/docs/messaging/compliance/toll-free/console-onboarding).
 
 ## Sending SMS
 
