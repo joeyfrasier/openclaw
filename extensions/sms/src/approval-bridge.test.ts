@@ -2,11 +2,7 @@
 import type { ExecApprovalRequest } from "openclaw/plugin-sdk/approval-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { describe, expect, it } from "vitest";
-import {
-  buildSmsApprovalActionFingerprint,
-  buildSmsApprovalPendingPayload,
-  smsApprovalCapability,
-} from "./approval-bridge.js";
+import { smsApprovalCapability } from "./approval-bridge.js";
 
 const OWNER = "+15551234567";
 const OTHER = "+15559876543";
@@ -52,6 +48,33 @@ function createRequest(command = "printf 'customer-secret-123'"): ExecApprovalRe
       security: "allowlist",
     },
   } as unknown as ExecApprovalRequest;
+}
+
+function buildSmsApprovalPendingPayload(params: {
+  cfg: OpenClawConfig;
+  request: ExecApprovalRequest;
+  target: { channel: string; to: string; accountId?: string | null };
+  nowMs: number;
+}) {
+  const renderPending = smsApprovalCapability.render?.exec?.buildPendingPayload;
+  if (!renderPending) {
+    throw new Error("SMS exec approval renderer is unavailable");
+  }
+  return renderPending(params);
+}
+
+function readSmsApprovalActionFingerprint(request: ExecApprovalRequest): string {
+  const text = buildSmsApprovalPendingPayload({
+    cfg: createConfig(),
+    request,
+    target: { channel: "sms", to: OWNER, accountId: "default" },
+    nowMs: 1_000,
+  }).text;
+  const fingerprint = /one bounded execution \(([a-f0-9]{12})\)/u.exec(text ?? "")?.[1];
+  if (!fingerprint) {
+    throw new Error("SMS approval fingerprint is missing");
+  }
+  return fingerprint;
 }
 
 describe("SMS approval bridge", () => {
@@ -134,8 +157,8 @@ describe("SMS approval bridge", () => {
   });
 
   it("changes the opaque action fingerprint whenever a bound action changes", () => {
-    const original = buildSmsApprovalActionFingerprint(createRequest("printf harmless"));
-    const changed = buildSmsApprovalActionFingerprint(createRequest("printf changed"));
+    const original = readSmsApprovalActionFingerprint(createRequest("printf harmless"));
+    const changed = readSmsApprovalActionFingerprint(createRequest("printf changed"));
     expect(original).toMatch(/^[a-f0-9]{12}$/);
     expect(changed).toMatch(/^[a-f0-9]{12}$/);
     expect(changed).not.toBe(original);

@@ -82,9 +82,10 @@ export function withOpenClawAgentDatabaseReadOnly<T>(
   // opening and closing a connection per call made reads scale with row count.
   // An in-flight transaction is skipped so callers never observe uncommitted
   // rows that a fresh read-only connection could not have seen.
-  const opened = behavior.allowExtension || isArtifactPreservingSqliteReadLocationsActive()
-    ? undefined
-    : findOpenAgentDatabase({ ...options, agentId });
+  const opened =
+    behavior.allowExtension || isArtifactPreservingSqliteReadLocationsActive()
+      ? undefined
+      : findOpenAgentDatabase({ ...options, agentId });
   if (opened && !opened.db.isTransaction) {
     // A newer build can migrate this file while the handle stays open, so the
     // forward-compatibility gate still runs before any reused read.

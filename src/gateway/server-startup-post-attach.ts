@@ -526,51 +526,57 @@ async function publishConfiguredModelRuntimeSnapshots(params: {
     return;
   }
   const sourceConfig = params.getConfig ?? (() => params.cfg);
-  const currentConfig = await sourceConfig();
-  if (params.isCurrent?.() === false) {
-    return;
-  }
-  await refreshPreparedModelRuntimeSnapshots(currentConfig, {
-    gatewayLifecycle: true,
-    catalogMode: "static",
-    allowGatewaySubagentBinding: true,
-    ...(params.isCurrent ? { isPublicationCurrent: params.isCurrent } : {}),
-    additionalRuntimePluginSelectionsByAgentId: readGatewayPersistedRuntimePluginSelections(
-      currentConfig,
-    ),
-    ...(params.pluginMetadataSnapshot
-      ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }
-      : {}),
-    ...(params.workspaceDir ? { defaultWorkspaceDir: params.workspaceDir } : {}),
-    ...(params.startupTrace
-      ? {
-          onBuildStats: (stats) =>
-            params.startupTrace?.detail("sidecars.model-runtime-build", [
-              ["agentCount", stats.agentCount],
-              ["workspaceGroupCount", stats.workspaceGroupCount],
-              ["configuredFactsGroupCount", stats.configuredFactsGroupCount],
-              ["catalogSourceCount", stats.catalogSourceCount],
-              ["credentialGroupCount", stats.credentialGroupCount],
-              ["catalogGroupCount", stats.catalogGroupCount],
-              ["runtimeRegistryCount", stats.runtimeRegistryCount],
-              ["configuredRuntimeModelCount", stats.configuredRuntimeModelCount],
-              ["generatedCatalogPluginCount", stats.generatedCatalogPluginCount],
-              ["generatedCatalogReadCount", stats.generatedCatalogReadCount],
-              ["workspaceFactsMs", stats.workspaceFactsMs],
-              ["runtimePluginMs", stats.runtimePluginMs],
-              ["pluginMetadataMs", stats.pluginMetadataMs],
-              ["staticProviderCatalogMs", stats.staticProviderCatalogMs],
-              ["ambientCredentialsMs", stats.ambientCredentialsMs],
-              ["agentFactsMs", stats.agentFactsMs],
-              ["configuredProjectionMs", stats.configuredProjectionMs],
-              ["catalogSourceMs", stats.catalogSourceMs],
-              ["registryMs", stats.registryMs],
-              ["sourceConcurrencyLimitCount", stats.sourceConcurrencyLimit],
-              ["fullCatalogConcurrencyLimitCount", stats.fullCatalogConcurrencyLimit],
-            ]),
-        }
-      : {}),
-  });
+  let persistedSelections:
+    | ReturnType<typeof readGatewayPersistedRuntimePluginSelections>
+    | undefined;
+  await refreshPreparedModelRuntimeSnapshots(
+    async () => {
+      const currentConfig = await sourceConfig();
+      persistedSelections = readGatewayPersistedRuntimePluginSelections(currentConfig);
+      return currentConfig;
+    },
+    {
+      gatewayLifecycle: true,
+      catalogMode: "static",
+      allowGatewaySubagentBinding: true,
+      ...(params.isCurrent ? { isPublicationCurrent: params.isCurrent } : {}),
+      get additionalRuntimePluginSelectionsByAgentId() {
+        return persistedSelections;
+      },
+      ...(params.pluginMetadataSnapshot
+        ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }
+        : {}),
+      ...(params.workspaceDir ? { defaultWorkspaceDir: params.workspaceDir } : {}),
+      ...(params.startupTrace
+        ? {
+            onBuildStats: (stats) =>
+              params.startupTrace?.detail("sidecars.model-runtime-build", [
+                ["agentCount", stats.agentCount],
+                ["workspaceGroupCount", stats.workspaceGroupCount],
+                ["configuredFactsGroupCount", stats.configuredFactsGroupCount],
+                ["catalogSourceCount", stats.catalogSourceCount],
+                ["credentialGroupCount", stats.credentialGroupCount],
+                ["catalogGroupCount", stats.catalogGroupCount],
+                ["runtimeRegistryCount", stats.runtimeRegistryCount],
+                ["configuredRuntimeModelCount", stats.configuredRuntimeModelCount],
+                ["generatedCatalogPluginCount", stats.generatedCatalogPluginCount],
+                ["generatedCatalogReadCount", stats.generatedCatalogReadCount],
+                ["workspaceFactsMs", stats.workspaceFactsMs],
+                ["runtimePluginMs", stats.runtimePluginMs],
+                ["pluginMetadataMs", stats.pluginMetadataMs],
+                ["staticProviderCatalogMs", stats.staticProviderCatalogMs],
+                ["ambientCredentialsMs", stats.ambientCredentialsMs],
+                ["agentFactsMs", stats.agentFactsMs],
+                ["configuredProjectionMs", stats.configuredProjectionMs],
+                ["catalogSourceMs", stats.catalogSourceMs],
+                ["registryMs", stats.registryMs],
+                ["sourceConcurrencyLimitCount", stats.sourceConcurrencyLimit],
+                ["fullCatalogConcurrencyLimitCount", stats.fullCatalogConcurrencyLimit],
+              ]),
+          }
+        : {}),
+    },
+  );
 }
 
 async function publishStartupModelRuntime(

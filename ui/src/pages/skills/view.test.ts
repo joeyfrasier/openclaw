@@ -524,7 +524,7 @@ describe("renderSkills", () => {
     );
   });
 
-  it("treats skills blocked by the selected agent filter as needing setup", async () => {
+  it("distinguishes agent-filtered skills from skills that need setup", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     dialogRestores.push(() => container.remove());
@@ -540,17 +540,17 @@ describe("renderSkills", () => {
     render(renderSkills(createProps({ report, statusFilter: "ready" })), container);
     await Promise.resolve();
 
-    expect(container.querySelectorAll(".plugins-item")).toHaveLength(0);
-    expect(normalizeText(container)).toContain("Ready 0");
-    expect(normalizeText(container)).toContain("Needs Setup 1");
+    expect(container.querySelectorAll(".plugins-item")).toHaveLength(1);
+    expect(normalizeText(container)).toContain("Ready 1");
+    expect(normalizeText(container)).toContain("Needs Setup 0");
+    expect(normalizeText(container)).toContain("blocked by agent filter");
 
     render(
-      renderSkills(createProps({ report, statusFilter: "needs-setup", detailKey: "repo-skill" })),
+      renderSkills(createProps({ report, statusFilter: "ready", detailKey: "repo-skill" })),
       container,
     );
     await Promise.resolve();
 
-    expect(container.querySelector(".plugins-item .settings-status--warn")).not.toBeNull();
     expect(normalizeText(container)).toContain("Reason: blocked by agent filter");
     expect(
       Array.from(container.querySelectorAll(".chip")).map((chip) => normalizeText(chip)),

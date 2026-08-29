@@ -179,7 +179,7 @@ describe("managed llama-server", () => {
     }
   });
 
-  it("preserves a custom embedding model when chat prepares the shared restart preset", async () => {
+  it("preserves a custom embedding model and its physical batch defaults when chat prepares the shared restart preset", async () => {
     const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "llama-server-chat-preset-"));
     const presetPath = path.join(tempRoot, "models.ini");
     const chatModelPath = path.join(tempRoot, "chat.gguf");
@@ -223,9 +223,8 @@ describe("managed llama-server", () => {
       const preset = await fs.readFile(presetPath, "utf8");
       expect(preset).toContain(`[chat-model]\nmodel = ${chatModelPath}\nctx-size = 8192`);
       expect(preset).toContain(
-        `[embeddinggemma-300m-qat-q8_0]\nmodel = ${embeddingModelPath}\nembedding = true`,
+        `[embeddinggemma-300m-qat-q8_0]\nmodel = ${embeddingModelPath}\nembedding = true\nbatch-size = 2048\nubatch-size = 2048`,
       );
-      expect(preset).not.toContain("ubatch-size");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }

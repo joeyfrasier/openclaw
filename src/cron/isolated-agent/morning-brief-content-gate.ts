@@ -10,7 +10,7 @@ export const MORNING_BRIEF_CRON_JOB_ID = "8781d5da-f913-44fb-9c13-17a21b8e8681";
 const CONTENT_GATE_TIMEOUT_MS = 10_000;
 const CONTENT_GATE_MAX_OUTPUT_BYTES = 512 * 1024;
 
-export type MorningBriefContentGateStage = "secure" | "check" | "scrub" | "cleanup";
+type MorningBriefContentGateStage = "secure" | "check" | "scrub" | "cleanup";
 
 export type MorningBriefContentGateResult =
   | {
@@ -33,7 +33,7 @@ export type MorningBriefContentGateResult =
         | "stale-draft";
     };
 
-export type MorningBriefContentGatePaths = {
+type MorningBriefContentGatePaths = {
   draftPath: string;
   secureScript: string;
   contentGateScript: string;
@@ -59,9 +59,7 @@ export type MorningBriefContentGateOptions = {
   minimumDraftMtimeMs?: number;
 };
 
-export function resolveMorningBriefContentGatePaths(
-  home = homedir(),
-): MorningBriefContentGatePaths {
+function resolveMorningBriefContentGatePaths(home = homedir()): MorningBriefContentGatePaths {
   return {
     draftPath: path.join(home, "dev", "red", "workspace", "work", "morning-brief-gate.md"),
     secureScript: path.join(

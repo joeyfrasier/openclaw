@@ -3,10 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SpawnResult } from "../../process/exec-result.js";
-import {
-  runMorningBriefContentGate,
-  type MorningBriefContentGatePaths,
-} from "./morning-brief-content-gate.js";
+import { runMorningBriefContentGate } from "./morning-brief-content-gate.js";
+
+type MorningBriefContentGatePaths = {
+  draftPath: string;
+  secureScript: string;
+  contentGateScript: string;
+  cleanupScript: string;
+};
 
 const tempDirs: string[] = [];
 

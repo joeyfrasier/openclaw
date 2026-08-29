@@ -326,16 +326,16 @@ function renderChatModelSection(params: {
 }
 
 function renderEmbeddingModelSection(params: { isDefault?: boolean; modelPath: string }): string {
+  const physicalBatchDefaults = [
+    `batch-size = ${LLAMA_CPP_EMBEDDING_BATCH_SIZE}`,
+    `ubatch-size = ${LLAMA_CPP_EMBEDDING_BATCH_SIZE}`,
+  ];
   return [
     `[${DEFAULT_LLAMA_CPP_EMBEDDING_MODEL_ID}]`,
     `model = ${assertIniValue(params.modelPath, "llama.cpp embedding model path")}`,
-    ...(params.isDefault
-      ? [
-          `batch-size = ${LLAMA_CPP_EMBEDDING_BATCH_SIZE}`,
-          `ubatch-size = ${LLAMA_CPP_EMBEDDING_BATCH_SIZE}`,
-        ]
-      : []),
+    ...(params.isDefault ? physicalBatchDefaults : []),
     "embedding = true",
+    ...(!params.isDefault ? physicalBatchDefaults : []),
   ].join("\n");
 }
 

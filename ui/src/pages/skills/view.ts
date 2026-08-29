@@ -124,9 +124,9 @@ function skillMatchesStatus(skill: SkillStatusEntry, status: SkillsStatusFilter)
     case "all":
       return true;
     case "ready":
-      return !skill.disabled && isSkillAvailable(skill);
+      return !skill.disabled && skill.eligible;
     case "needs-setup":
-      return !skill.disabled && !isSkillAvailable(skill);
+      return !skill.disabled && !skill.eligible;
     case "disabled":
       return skill.disabled;
   }
@@ -137,6 +137,9 @@ function skillStatusClass(skill: SkillStatusEntry): string {
   if (skill.disabled) {
     return "muted";
   }
+  if (skill.blockedByAgentFilter && skill.eligible) {
+    return "muted";
+  }
   return isSkillAvailable(skill) ? "ok" : "warn";
 }
 
@@ -144,6 +147,9 @@ function skillStatusClass(skill: SkillStatusEntry): string {
 function skillAvailabilityStatus(skill: SkillStatusEntry): TemplateResult {
   if (skill.disabled) {
     return renderSettingsStatus({ kind: "muted", label: t("skillsPage.tabs.disabled") });
+  }
+  if (skill.blockedByAgentFilter && skill.eligible) {
+    return renderSettingsStatus({ kind: "muted", label: t("skillStatus.blockedAgentFilter") });
   }
   return isSkillAvailable(skill)
     ? renderSettingsStatus({ kind: "ok", label: t("skillsPage.tabs.ready") })
@@ -238,7 +244,7 @@ export function renderSkills(props: SkillsProps) {
   for (const s of skills) {
     if (s.disabled) {
       statusCounts.disabled++;
-    } else if (isSkillAvailable(s)) {
+    } else if (s.eligible) {
       statusCounts.ready++;
     } else {
       statusCounts["needs-setup"]++;

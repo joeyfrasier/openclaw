@@ -49,7 +49,7 @@ function resolveActionBinding(request: ExecApprovalRequest): unknown {
   );
 }
 
-export function buildSmsApprovalActionFingerprint(request: ExecApprovalRequest): string {
+function buildSmsApprovalActionFingerprint(request: ExecApprovalRequest): string {
   return createHash("sha256")
     .update(JSON.stringify(canonicalize(resolveActionBinding(request))))
     .digest("hex")
@@ -95,7 +95,7 @@ function isSmsApprovalOwner(params: {
   );
 }
 
-export function buildSmsApprovalPendingPayload(params: {
+function buildSmsApprovalPendingPayload(params: {
   cfg: OpenClawConfig;
   request: ExecApprovalRequest;
   target: { channel: string; to: string; accountId?: string | null };
