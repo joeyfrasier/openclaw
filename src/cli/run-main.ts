@@ -63,6 +63,7 @@ import {
   shouldHandleBareRoot,
   shouldEnsureCliPath,
   shouldStartProxyForCli,
+  shouldUseArtifactPreservingCliReadScope,
   shouldUseRootHelpFastPath,
   shouldUseSetupOnboardConfigureHelpFastPath,
 } from "./run-main-policy.js";
@@ -78,6 +79,7 @@ export {
   shouldHandleBareRoot,
   shouldEnsureCliPath,
   shouldStartProxyForCli,
+  shouldUseArtifactPreservingCliReadScope,
   shouldUseRootHelpFastPath,
   shouldUseSetupOnboardConfigureHelpFastPath,
 } from "./run-main-policy.js";
@@ -1067,14 +1069,13 @@ export async function runCli(
         retainRoutingUntilProcessExit: options.retainConsoleRoutingUntilProcessExit,
       },
     );
-  const invocation = resolveCliArgvInvocation(originalArgv);
-  if (invocation.primary !== "doctor" || !hasFlag(originalArgv, "--lint")) {
+  if (!shouldUseArtifactPreservingCliReadScope(originalArgv)) {
     return await runPrepared();
   }
-  // Doctor lint's preservation boundary starts before config/plugin command
-  // discovery. Those startup paths may consult the shared state database before
-  // the Doctor action itself is registered; enclosing only runDoctorLintCli is
-  // too late and can still advance source WAL/SHM coordination bytes.
+  // The preservation boundary starts before config/plugin command discovery.
+  // Those startup paths may consult the shared state database before the action
+  // itself is registered; enclosing only the final action is too late and can
+  // still advance source WAL/SHM coordination bytes.
   const [{ withArtifactPreservingSqliteReadLocations }, stateDatabaseReads] = await Promise.all([
     import("../infra/sqlite-readonly-operations.js"),
     import("../state/openclaw-state-db-readonly.js"),

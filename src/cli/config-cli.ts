@@ -234,7 +234,7 @@ export async function runConfigUnset(opts: {
     const parsedPath = pathTokens.map(String);
     assertConfigPathIsNotAutoManaged(parsedPath);
     const mutationStart = cliOptions.dryRun
-      ? { snapshot: await loadValidConfig(runtime), writeOptions: {} }
+      ? { snapshot: await loadValidConfig(runtime, { observe: false }), writeOptions: {} }
       : await loadValidConfigForWrite(runtime);
     const { snapshot } = mutationStart;
     // Mutate resolved config so runtime defaults never leak into the authored file.

@@ -21,6 +21,10 @@ import { createCliRuntimeCapture, mockRuntimeModule } from "./test-runtime-captu
 
 const mockReadConfigFileSnapshot =
   vi.fn<(options?: { observe?: boolean }) => Promise<ConfigFileSnapshot>>();
+const mockReadConfigFileSnapshotForWrite = vi.fn(async (options?: { observe?: boolean }) => ({
+  snapshot: await mockReadConfigFileSnapshot(options),
+  writeOptions: {},
+}));
 const mockWriteConfigFile = vi.fn<
   (
     cfg: OpenClawConfig,
@@ -90,10 +94,8 @@ vi.mock("../config/config.js", () => ({
     snapshot: await mockReadConfigFileSnapshot(...args),
     pluginMetadataSnapshot: createPluginMetadataSnapshot(),
   }),
-  readConfigFileSnapshotForWrite: async () => ({
-    snapshot: await mockReadConfigFileSnapshot(),
-    writeOptions: {},
-  }),
+  readConfigFileSnapshotForWrite: (options?: { observe?: boolean }) =>
+    mockReadConfigFileSnapshotForWrite(options),
   writeConfigFile: (
     cfg: OpenClawConfig,
     options?: {
@@ -576,6 +578,7 @@ describe("config cli", () => {
     vi.clearAllMocks();
     mockReadConfigFileSnapshot.mockReset();
     mockReadConfigFileSnapshot.mockResolvedValue(buildSnapshot({ resolved: {}, config: {} }));
+    mockReadConfigFileSnapshotForWrite.mockClear();
     resetRuntimeCapture();
     mockLoadPluginMetadataSnapshot.mockReturnValue(createPluginMetadataSnapshot());
     mockReadBestEffortRuntimeConfigSchema.mockResolvedValue({
@@ -2274,6 +2277,7 @@ describe("config cli", () => {
       ]);
 
       expect(mockWriteConfigFile).not.toHaveBeenCalled();
+      expect(mockReadConfigFileSnapshotForWrite).toHaveBeenCalledWith({ observe: false });
       expect(mockResolveSecretRefValue).toHaveBeenCalledTimes(1);
       const [secretRef, resolveOptions] = requireResolveSecretRefCall(0);
       expect(secretRef).toEqual({
@@ -4377,6 +4381,7 @@ describe("config cli", () => {
       await runConfigCommand(["config", "unset", "tools.alsoAllow", "--dry-run", "--json"]);
 
       expect(mockWriteConfigFile).not.toHaveBeenCalled();
+      expect(mockReadConfigFileSnapshot).toHaveBeenCalledWith({ observe: false });
       expect(parseLastLogPayload()).toMatchObject({
         ok: true,
         operations: 1,
