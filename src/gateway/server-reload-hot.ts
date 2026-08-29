@@ -99,8 +99,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
     publication?: GatewayHotReloadPublication,
   ): Promise<void> => {
     assertIrreversibleReloadPlanHasRecoveryOwner(plan, restartRecoveryAvailable);
-    const isTransactionCurrent = () =>
-      !isRestartRetryStopped() && (publication?.isCurrent?.() ?? true);
+    const isCurrent = () => !isRestartRetryStopped() && publication?.isCurrent?.() !== false;
     const state = params.getState();
     const nextState = { ...state };
 
@@ -160,19 +159,17 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
     let activePluginChannelsAfterReload: ReadonlySet<ChannelKind> | null = null;
     let pluginReloadAborted = false;
     const isLifecycleReloadAborted = () => isGatewayReloadGenerationAborted(myGeneration);
-    const isPluginReloadAborted = () =>
-      pluginReloadAborted || !isTransactionCurrent() || isLifecycleReloadAborted();
+    const isReloadAborted = () => pluginReloadAborted || !isCurrent() || isLifecycleReloadAborted();
     let runtimeCommitted = false;
     let preparedModelRuntimeReplacementGateId: PreparedModelRuntimeReplacementGateId | undefined;
     let recoveryRestartScheduled = false;
     const laneConcurrency = resolveGatewayLaneConcurrency(nextConfig);
     const candidateEnv = publication?.runtimeEnv ?? process.env;
-    // Planning happens before candidate env publication, while channel starts
-    // happen after it. Use one candidate snapshot across both phases.
+    // Use one candidate env snapshot across pre-publication planning and later channel starts.
     const shouldSkipChannelRestart =
       isTruthyEnvValue(candidateEnv.OPENCLAW_SKIP_CHANNELS) ||
       isTruthyEnvValue(candidateEnv.OPENCLAW_SKIP_PROVIDERS);
-    const channelReloadTargets = () =>
+    const reloadTargets = () =>
       new Set<ChannelKind>([...channelsToRestart, ...restartChannelAccounts.keys()]);
     const getChannelAutostartSuppression = () => params.getChannelAutostartSuppression?.() ?? null;
     const logSuppressedChannelRestart = (
@@ -308,7 +305,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
         restartGateway: true,
         restartReasons: [`hot reload recovery: ${surface}`],
       };
-      if (!isTransactionCurrent()) {
+      if (!isCurrent()) {
         params.logReload.warn(
           `${surface} failed after config supersession${detail}; recovery deferred to the newer config`,
         );
@@ -350,8 +347,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
           },
         );
         settleRecoveryRestart(restartTransaction, surface);
-        // Immediate emission failure already owns a lifecycle retry. The runtime
-        // is committed, so keep this transaction accepted while that retry runs.
+        // Keep the committed transaction accepted while immediate emission recovery retries.
       } catch (restartError) {
         params.logReload.warn(
           `failed to schedule post-commit gateway restart: ${formatErrorMessage(restartError)}`,
@@ -429,11 +425,11 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
             restartAccountIds.add(accountId);
           }
         }
-        const targets = channelReloadTargets();
+        const targets = reloadTargets();
         if (targets.size === 0 || shouldSkipChannelRestart) {
           return;
         }
-        if (await waitForActiveWorkBeforeChannelReload(targets, isTransactionCurrent)) {
+        if (await waitForActiveWorkBeforeChannelReload(targets, isCurrent)) {
           params.logChannels.info(
             "channel reload before plugin replace cancelled by config supersession or restart",
           );
@@ -446,7 +442,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
             continue;
           }
           for (const accountId of accountIds) {
-            if (isPluginReloadAborted()) {
+            if (isReloadAborted()) {
               pluginReloadAborted = true;
               break;
             }
@@ -464,7 +460,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
                 `stopping ${channel} account ${accountId} before plugin reload`,
               );
               await params.stopChannel(channel, accountId, { manual: false });
-              pluginReloadAborted = isPluginReloadAborted();
+              pluginReloadAborted = isReloadAborted();
             } catch (err) {
               accountStopFailures.push(`${channel}[${accountId}]`);
               params.logChannels.error(
@@ -476,7 +472,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
         const channelStopFailures = await collectChannelOperationFailures({
           channels: channelsToRestart,
           run: async (channel) => {
-            if (isPluginReloadAborted()) {
+            if (isReloadAborted()) {
               pluginReloadAborted = true;
               return;
             }
@@ -486,7 +482,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
             params.logChannels.info(`stopping ${channel} channel before plugin reload`);
             channelsStoppedBeforePluginReload.add(channel);
             await params.stopChannel(channel, undefined, { manual: false });
-            pluginReloadAborted = isPluginReloadAborted();
+            pluginReloadAborted = isReloadAborted();
           },
           onFailure: (channel, err) => {
             params.logChannels.error(
@@ -494,7 +490,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
             );
           },
         });
-        if (isPluginReloadAborted()) {
+        if (isReloadAborted()) {
           pluginReloadAborted = true;
         }
         if (pluginReloadAborted) {
@@ -535,7 +531,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
             onReplacementTeardownFailure: (error) =>
               scheduleRecoveryRestart("plugin service replacement teardown", error),
             env: publication?.runtimeEnv ?? process.env,
-            isAborted: isPluginReloadAborted,
+            isAborted: isReloadAborted,
           });
         } catch (err) {
           if (!runtimeCommitted) {
@@ -581,17 +577,13 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
       }
     }
 
-    const channelTargets = channelReloadTargets();
+    const channelTargets = reloadTargets();
     const hasLiveChannelTargets = [...channelTargets].some(
       (channel) => !channelsStoppedBeforePluginReload.has(channel),
     );
-    // Plugin replacement can admit new agent work while an account monitor stays live.
-    // Recheck that work here; durable ingress replay remains owned by the fresh monitor drain.
+    // Recheck work admitted during plugin replacement; the fresh monitor owns ingress replay.
     if (!pluginReloadAborted && hasLiveChannelTargets && !shouldSkipChannelRestart) {
-      pluginReloadAborted = await waitForActiveWorkBeforeChannelReload(
-        channelTargets,
-        isTransactionCurrent,
-      );
+      pluginReloadAborted = await waitForActiveWorkBeforeChannelReload(channelTargets, isCurrent);
     }
     if (pluginReloadAborted) {
       // Only an uncommitted reload can transfer its receipt to the watcher. After
@@ -698,7 +690,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
       pluginReloadAborted,
       isLifecycleReloadAborted,
       getChannelAutostartSuppression,
-      channelReloadTargets,
+      channelReloadTargets: reloadTargets,
       logSuppressedChannelRestart,
       scheduleRecoveryRestart,
     });
@@ -712,9 +704,9 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
     }
     if (shouldRewarmProviderAuthState(plan)) {
       void warmCurrentProviderAuthStateOffMainThread(nextConfig, {
-        isCancelled: () => !isTransactionCurrent(),
+        isCancelled: () => !isCurrent(),
       }).catch((err: unknown) => {
-        if (isTransactionCurrent()) {
+        if (isCurrent()) {
           params.logReload.warn(`provider auth state rewarm failed: ${String(err)}`);
         }
       });

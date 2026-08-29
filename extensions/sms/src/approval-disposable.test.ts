@@ -29,14 +29,14 @@ function createBoundRequest(command: string): ExecApprovalRequestPayload {
   };
 }
 
-function register(manager: ExecApprovalManager<ExecApprovalRequestPayload>, id: string) {
+function register(manager: ExecApprovalManager, id: string) {
   const record = manager.create(createBoundRequest("harmless-canary"), 60_000, id);
   return { record, decision: manager.register(record, 60_000) };
 }
 
 describe("disposable SMS approval contract", () => {
   it("executes one exact harmless action once and rejects changed or replayed actions", async () => {
-    const manager = new ExecApprovalManager<ExecApprovalRequestPayload>({
+    const manager = new ExecApprovalManager({
       approvalKind: "exec",
       resolveAllowedDecisions: (request) => request.allowedDecisions ?? ["deny"],
     });
@@ -75,13 +75,13 @@ describe("disposable SMS approval contract", () => {
   });
 
   it("settles deny and timeout without minting execution authority", async () => {
-    const deniedManager = new ExecApprovalManager<ExecApprovalRequestPayload>();
+    const deniedManager = new ExecApprovalManager();
     const denied = register(deniedManager, "bcdefabc-1234-5678-9abc-123456789abc");
     expect(deniedManager.resolve(denied.record.id, "deny", "sms:default")).toBe(true);
     await expect(denied.decision).resolves.toBe("deny");
     expect(deniedManager.consumeAllowOnce(denied.record.id)).toBe(false);
 
-    const expiredManager = new ExecApprovalManager<ExecApprovalRequestPayload>();
+    const expiredManager = new ExecApprovalManager();
     const expired = register(expiredManager, "cdefabcd-1234-5678-9abc-123456789abc");
     expect(expiredManager.expire(expired.record.id, "sms-timeout")).toBe(true);
     await expect(expired.decision).resolves.toBeNull();
@@ -90,7 +90,7 @@ describe("disposable SMS approval contract", () => {
   });
 
   it("rejects malformed approval ids before registration", () => {
-    const manager = new ExecApprovalManager<ExecApprovalRequestPayload>();
+    const manager = new ExecApprovalManager();
     expect(() => manager.create(createBoundRequest("harmless-canary"), 60_000, "bad id")).toThrow(
       /approval id must be/,
     );
