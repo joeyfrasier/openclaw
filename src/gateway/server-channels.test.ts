@@ -692,7 +692,7 @@ describe("server-channels auto restart", () => {
 
   it("keeps runtime configured truth when the raw account descriptor cannot resolve a SecretRef", async () => {
     const startAccount = vi.fn(async (ctx: ChannelGatewayContext<TestAccount>) => {
-      ctx.setStatus({ configured: true, running: true });
+      ctx.setStatus({ accountId: DEFAULT_ACCOUNT_ID, configured: true, running: true });
       await new Promise<void>((resolve) => {
         ctx.abortSignal.addEventListener("abort", () => resolve(), { once: true });
       });

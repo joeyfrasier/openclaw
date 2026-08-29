@@ -1033,10 +1033,7 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
 
   it("removes the message tool before the gated morning brief executes", async () => {
     mockRunCronFallbackPassthrough();
-    const morningBriefJob = {
-      ...makeAnnounceMessageToolJob(),
-      id: MORNING_BRIEF_CRON_JOB_ID,
-    };
+    const morningBriefJob = makeAnnounceMessageToolJob({ id: MORNING_BRIEF_CRON_JOB_ID });
     const executor = createMessageToolExecutor({
       job: morningBriefJob,
       deliveryRequested: true,
@@ -1050,10 +1047,7 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
 
   it("removes the CLI message tool before the gated morning brief executes", async () => {
     mockCliAnnounceRun();
-    const morningBriefJob = {
-      ...makeAnnounceMessageToolJob(),
-      id: MORNING_BRIEF_CRON_JOB_ID,
-    };
+    const morningBriefJob = makeAnnounceMessageToolJob({ id: MORNING_BRIEF_CRON_JOB_ID });
     const executor = createMessageToolExecutor({
       job: morningBriefJob,
       deliveryRequested: true,
