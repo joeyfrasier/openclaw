@@ -60,7 +60,11 @@ function buildSmsApprovalPendingPayload(params: {
   if (!renderPending) {
     throw new Error("SMS exec approval renderer is unavailable");
   }
-  return renderPending(params);
+  const payload = renderPending(params);
+  if (!payload) {
+    throw new Error("SMS exec approval renderer returned no payload");
+  }
+  return payload;
 }
 
 function readSmsApprovalActionFingerprint(request: ExecApprovalRequest): string {
