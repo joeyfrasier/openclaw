@@ -14,6 +14,7 @@ import {
   recordLegacyMigrationSource,
 } from "../infra/state-migrations.receipts.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../state/openclaw-agent-db.generated.js";
+import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
 import type { DB as OpenClawStateDatabase } from "../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
@@ -478,13 +479,16 @@ export function hasTerminalAuthProfileMigrationReceipt(
   sourceKey: string,
   env?: NodeJS.ProcessEnv,
 ): boolean {
-  const database = openOpenClawStateDatabase({ env });
-  const row = executeSqliteQueryTakeFirstSync(
-    database.db,
-    getNodeSqliteKysely<MigrationDatabase>(database.db)
-      .selectFrom("migration_sources")
-      .select("status")
-      .where("source_key", "=", sourceKey),
+  const row = withExistingOpenClawStateDatabaseReadOnly(
+    ({ db }) =>
+      executeSqliteQueryTakeFirstSync(
+        db,
+        getNodeSqliteKysely<MigrationDatabase>(db)
+          .selectFrom("migration_sources")
+          .select("status")
+          .where("source_key", "=", sourceKey),
+      ),
+    { env },
   );
   return row?.status === "completed" || row?.status === "archived-unparsed";
 }

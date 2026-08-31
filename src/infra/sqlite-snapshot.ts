@@ -23,7 +23,7 @@ import {
 } from "./node-sqlite.js";
 import { assertSqliteIntegrity } from "./sqlite-integrity.js";
 import { createPrivateSqliteTempDirectory } from "./sqlite-private-directory.js";
-import { withSqliteSnapshotSource } from "./sqlite-readonly-location.js";
+import { withSqliteSnapshotSource } from "./sqlite-readonly-operations.js";
 import { readSqliteUserVersion } from "./sqlite-user-version.js";
 
 export type SqliteSnapshotValidator = (database: DatabaseSync, databaseLabel: string) => void;

@@ -2,6 +2,10 @@ import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { clearNodeSqliteKyselyCacheForDatabase } from "../infra/kysely-sync.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
+import {
+  isArtifactPreservingSqliteReadLocationsActive,
+  withArtifactPreservingSqliteReadLocationSync,
+} from "../infra/sqlite-readonly-operations.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import type {
   OpenClawAgentDatabase,
@@ -78,9 +82,10 @@ export function withOpenClawAgentDatabaseReadOnly<T>(
   // opening and closing a connection per call made reads scale with row count.
   // An in-flight transaction is skipped so callers never observe uncommitted
   // rows that a fresh read-only connection could not have seen.
-  const opened = behavior.allowExtension
-    ? undefined
-    : findOpenAgentDatabase({ ...options, agentId });
+  const opened =
+    behavior.allowExtension || isArtifactPreservingSqliteReadLocationsActive()
+      ? undefined
+      : findOpenAgentDatabase({ ...options, agentId });
   if (opened && !opened.db.isTransaction) {
     // A newer build can migrate this file while the handle stays open, so the
     // forward-compatibility gate still runs before any reused read.
@@ -98,29 +103,31 @@ export function withOpenClawAgentDatabaseReadOnly<T>(
   if (!fs.existsSync(pathname)) {
     return { found: false, reason: "database-missing" };
   }
-  const db = openNodeSqliteDatabase(pathname, {
-    readOnly: true,
-    ...(behavior.allowExtension ? { allowExtension: true } : {}),
-  });
-  try {
-    db.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
-    assertSupportedAgentSchemaVersion(db, pathname);
-    assertCanonicalAgentPersistenceVersion(db, pathname);
-    const schemaMeta = readExistingAgentSchemaMeta(db);
-    if (!schemaMeta) {
-      return { found: false, reason: "schema-missing" };
-    }
-    assertExistingAgentSchemaOwner(schemaMeta, agentId, pathname);
+  return withArtifactPreservingSqliteReadLocationSync(pathname, (location) => {
+    const db = openNodeSqliteDatabase(location, {
+      readOnly: true,
+      ...(behavior.allowExtension ? { allowExtension: true } : {}),
+    });
     try {
-      return { found: true, value: operation({ agentId, db, path: pathname }) };
-    } catch (error) {
-      if (isMissingTableError(error) && !behavior.throwOnMissingTable) {
-        return { found: false, reason: "table-missing" };
+      db.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
+      assertSupportedAgentSchemaVersion(db, pathname);
+      assertCanonicalAgentPersistenceVersion(db, pathname);
+      const schemaMeta = readExistingAgentSchemaMeta(db);
+      if (!schemaMeta) {
+        return { found: false, reason: "schema-missing" };
       }
-      throw error;
+      assertExistingAgentSchemaOwner(schemaMeta, agentId, pathname);
+      try {
+        return { found: true, value: operation({ agentId, db, path: pathname }) };
+      } catch (error) {
+        if (isMissingTableError(error) && !behavior.throwOnMissingTable) {
+          return { found: false, reason: "table-missing" };
+        }
+        throw error;
+      }
+    } finally {
+      clearNodeSqliteKyselyCacheForDatabase(db);
+      db.close();
     }
-  } finally {
-    clearNodeSqliteKyselyCacheForDatabase(db);
-    db.close();
-  }
+  });
 }

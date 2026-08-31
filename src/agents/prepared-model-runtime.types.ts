@@ -118,6 +118,11 @@ export type PreparedModelRuntimeRefreshOptions = {
   catalogMode?: PreparedModelRuntimeCatalogMode;
   onBuildStats?: (stats: PreparedModelRuntimeBuildStats) => void;
   allowGatewaySubagentBinding?: boolean;
+  /** Persisted session harness choices that must survive a Gateway publication. */
+  additionalRuntimePluginSelectionsByAgentId?: ReadonlyMap<
+    string,
+    readonly AgentHarnessPluginSelection[]
+  >;
   pluginMetadataSnapshot?: PluginMetadataSnapshot;
   isPublicationCurrent?: () => boolean;
   /** Restricts replacement to configured owners whose normalized agent id is present. */

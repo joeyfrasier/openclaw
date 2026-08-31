@@ -5,15 +5,23 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 
 const prepareModelRuntimeSnapshotMock = vi.fn(async (_params: unknown) => ({}));
+const persistedRuntimeSelections = new Map([
+  ["default", [{ modelId: "gpt-5.5", provider: "openai", runtime: "codex" }]],
+]);
+const readPersistedRuntimeSelectionsMock = vi.fn(
+  (_cfg: OpenClawConfig) => persistedRuntimeSelections,
+);
+type RuntimeConfigSource = OpenClawConfig | (() => OpenClawConfig | Promise<OpenClawConfig>);
 const refreshPreparedModelRuntimeSnapshotsMock = vi.fn(
   async (
-    _cfg: OpenClawConfig,
+    _cfg: RuntimeConfigSource,
     _options?: {
       gatewayLifecycle?: boolean;
       defaultWorkspaceDir?: string;
       catalogMode?: "live" | "static";
       allowGatewaySubagentBinding?: boolean;
       isPublicationCurrent?: () => boolean;
+      additionalRuntimePluginSelectionsByAgentId?: ReadonlyMap<string, readonly unknown[]>;
     },
   ) => {},
 );
@@ -27,15 +35,21 @@ vi.mock("../agents/agent-scope.js", () => ({
 vi.mock("../agents/prepared-model-runtime.js", () => ({
   publishPreparedModelRuntimeSnapshot: (params: unknown) => prepareModelRuntimeSnapshotMock(params),
   refreshPreparedModelRuntimeSnapshots: (
-    cfg: OpenClawConfig,
+    cfg: RuntimeConfigSource,
     options?: {
       gatewayLifecycle?: boolean;
       defaultWorkspaceDir?: string;
       catalogMode?: "live" | "static";
       allowGatewaySubagentBinding?: boolean;
       isPublicationCurrent?: () => boolean;
+      additionalRuntimePluginSelectionsByAgentId?: ReadonlyMap<string, readonly unknown[]>;
     },
   ) => refreshPreparedModelRuntimeSnapshotsMock(cfg, options),
+}));
+
+vi.mock("./server-startup-model-runtime-selections.js", () => ({
+  readGatewayPersistedRuntimePluginSelections: (cfg: OpenClawConfig) =>
+    readPersistedRuntimeSelectionsMock(cfg),
 }));
 
 let prewarmConfiguredPrimaryModel: typeof import("./server-startup-post-attach.js").testing.prewarmConfiguredPrimaryModel;
@@ -58,6 +72,7 @@ describe("gateway startup primary model warmup", () => {
   beforeEach(() => {
     prepareModelRuntimeSnapshotMock.mockClear();
     refreshPreparedModelRuntimeSnapshotsMock.mockClear();
+    readPersistedRuntimeSelectionsMock.mockReset().mockReturnValue(persistedRuntimeSelections);
   });
 
   it("prewarms an explicit configured primary model", async () => {
@@ -77,6 +92,7 @@ describe("gateway startup primary model warmup", () => {
     });
 
     expect(refreshPreparedModelRuntimeSnapshotsMock).toHaveBeenCalledWith(cfg, {
+      additionalRuntimePluginSelectionsByAgentId: persistedRuntimeSelections,
       allowGatewaySubagentBinding: true,
       gatewayLifecycle: true,
       catalogMode: "static",
@@ -114,6 +130,7 @@ describe("gateway startup primary model warmup", () => {
     });
 
     expect(refreshPreparedModelRuntimeSnapshotsMock).toHaveBeenCalledWith(cfg, {
+      additionalRuntimePluginSelectionsByAgentId: persistedRuntimeSelections,
       allowGatewaySubagentBinding: true,
       gatewayLifecycle: true,
       catalogMode: "static",
@@ -151,6 +168,7 @@ describe("gateway startup primary model warmup", () => {
       expect(refreshPreparedModelRuntimeSnapshotsMock).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({
+          additionalRuntimePluginSelectionsByAgentId: persistedRuntimeSelections,
           allowGatewaySubagentBinding: true,
           defaultWorkspaceDir: "/tmp/skip-explicit-workspace",
         }),
@@ -174,6 +192,7 @@ describe("gateway startup primary model warmup", () => {
     await prewarmConfiguredPrimaryModel({ cfg, log: { warn: vi.fn() } });
 
     expect(refreshPreparedModelRuntimeSnapshotsMock).toHaveBeenCalledWith(cfg, {
+      additionalRuntimePluginSelectionsByAgentId: persistedRuntimeSelections,
       allowGatewaySubagentBinding: true,
       gatewayLifecycle: true,
       catalogMode: "static",
@@ -189,11 +208,44 @@ describe("gateway startup primary model warmup", () => {
     });
 
     expect(refreshPreparedModelRuntimeSnapshotsMock).toHaveBeenCalledWith(cfg, {
+      additionalRuntimePluginSelectionsByAgentId: persistedRuntimeSelections,
       allowGatewaySubagentBinding: true,
       gatewayLifecycle: true,
       catalogMode: "static",
       defaultWorkspaceDir: "/tmp/explicit-workspace",
     });
+  });
+
+  it("binds persisted selections to the deferred current config before refresh publication", async () => {
+    const staleConfig = { agents: { defaults: { model: { primary: "openai/old" } } } };
+    const currentConfig = { agents: { defaults: { model: { primary: "openai/current" } } } };
+    const getConfig = vi.fn(async () => currentConfig);
+    refreshPreparedModelRuntimeSnapshotsMock.mockImplementationOnce(async (source, options) => {
+      expect(getConfig).not.toHaveBeenCalled();
+      expect(readPersistedRuntimeSelectionsMock).not.toHaveBeenCalled();
+      if (typeof source !== "function") {
+        throw new Error("expected deferred current config acquisition");
+      }
+      expect(await source()).toBe(currentConfig);
+      expect(options?.additionalRuntimePluginSelectionsByAgentId).toBe(persistedRuntimeSelections);
+    });
+
+    await prewarmConfiguredPrimaryModel({ cfg: staleConfig, getConfig, log: { warn: vi.fn() } });
+
+    expect(getConfig).toHaveBeenCalledOnce();
+    expect(readPersistedRuntimeSelectionsMock).toHaveBeenCalledExactlyOnceWith(currentConfig);
+  });
+
+  it("does not publish a configured owner when the persisted selection scan is blocked", async () => {
+    const error = new Error("persisted selection scan blocked");
+    readPersistedRuntimeSelectionsMock.mockImplementationOnce(() => {
+      throw error;
+    });
+
+    await expect(prewarmConfiguredPrimaryModel({ cfg: {}, log: { warn: vi.fn() } })).rejects.toBe(
+      error,
+    );
+    expect(refreshPreparedModelRuntimeSnapshotsMock).not.toHaveBeenCalled();
   });
 
   it("propagates lifecycle catalog preparation failure", async () => {

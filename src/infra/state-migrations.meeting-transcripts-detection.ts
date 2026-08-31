@@ -8,6 +8,7 @@ import {
   TRANSCRIPT_PATH_SEGMENT_MAX_BYTES,
 } from "../transcripts/store-artifacts.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
+import { prepareSqliteReadOnlyLocationSync } from "./sqlite-readonly-location.js";
 import {
   hasMatchingRecordedTranscriptArtifact,
   isRecordedCanonicalTranscriptExport,
@@ -189,8 +190,10 @@ export function readMeetingTranscriptMigrationDetectionState(params: {
       hasOversizedSessionSlugs: false,
     };
   }
-  const database = openNodeSqliteDatabase(databasePath, { readOnly: true });
+  const prepared = prepareSqliteReadOnlyLocationSync(databasePath);
+  let database: ReturnType<typeof openNodeSqliteDatabase> | undefined;
   try {
+    database = openNodeSqliteDatabase(prepared.location, { readOnly: true });
     const tables = new Set(
       database
         .prepare(
@@ -243,6 +246,10 @@ export function readMeetingTranscriptMigrationDetectionState(params: {
       hasOversizedSessionSlugs,
     };
   } finally {
-    database.close();
+    try {
+      database?.close();
+    } finally {
+      prepared.cleanup();
+    }
   }
 }

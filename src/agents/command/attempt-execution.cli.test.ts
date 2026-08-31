@@ -2765,6 +2765,7 @@ describe("CLI attempt execution", () => {
         requireExplicitMessageTarget: requireExplicitMessageTarget === true,
         toolsAllow: expectedToolsAllow,
         disableTools: expectedDisableTools,
+        disableMessageTool: disableMessageTool || undefined,
         allowEmptyAssistantReplyAsSilent: true,
       });
       expect(runEmbeddedAgentMock).not.toHaveBeenCalled();

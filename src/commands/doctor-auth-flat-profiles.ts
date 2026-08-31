@@ -892,6 +892,8 @@ function migrateLockedLegacyOAuthFile(params: {
 export async function maybeMigrateAuthProfileJsonStoresToSqlite(params: {
   cfg: OpenClawConfig;
   prompter: Pick<DoctorPrompter, "confirmAutoFix">;
+  /** Detection-only callers must never resume or commit an interrupted migration. */
+  readOnly?: boolean;
   now?: () => number;
   env?: NodeJS.ProcessEnv;
   openAICodexAuthProfileIdMap?: ReadonlyMap<string, string>;
@@ -905,10 +907,12 @@ export async function maybeMigrateAuthProfileJsonStoresToSqlite(params: {
     params.deps?.loadPersistedAuthProfileStore ?? loadPersistedAuthProfileStore;
   let resumedChanges: string[] = [];
   let resumeWarning: string | undefined;
-  try {
-    resumedChanges = resumePendingAuthProfileMigrationArchives(env);
-  } catch (err) {
-    resumeWarning = `Could not finalize an interrupted auth profile archive; legacy sources were left for recovery: ${String(err)}`;
+  if (!params.readOnly) {
+    try {
+      resumedChanges = resumePendingAuthProfileMigrationArchives(env);
+    } catch (err) {
+      resumeWarning = `Could not finalize an interrupted auth profile archive; legacy sources were left for recovery: ${String(err)}`;
+    }
   }
   const candidates = listAuthProfileSqliteMigrationCandidates(params.cfg, env);
   const configStore = coerceLegacyConfigAuthProfileStore(params.cfg);
@@ -965,6 +969,10 @@ export async function maybeMigrateAuthProfileJsonStoresToSqlite(params: {
     ].join("\n"),
     "Auth profile SQLite migration",
   );
+
+  if (params.readOnly) {
+    return result;
+  }
 
   const shouldRepair = await params.prompter.confirmAutoFix({
     message: "Migrate auth profile JSON files into SQLite now?",

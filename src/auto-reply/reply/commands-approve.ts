@@ -180,6 +180,7 @@ export async function handleApproveCommandFromContext(
         accountId: effectiveAccountId,
         senderId: params.command.senderId,
         approvalKind,
+        decision: parsed.decision,
       }),
     );
   }

@@ -263,6 +263,8 @@ export type RunCliAgentParams = {
   approvalReviewerDeviceId?: string;
   /** Runtime tool allow-list. CLI harnesses need a backend-owned exact translation. */
   toolsAllow?: string[];
+  /** Remove the OpenClaw message tool while preserving unrelated native and loopback tools. */
+  disableMessageTool?: boolean;
   /** Exact Skill Workshop proposal revision bound by the Gateway for this turn. */
   skillWorkshopProposalRevision?: SkillWorkshopProposalRevisionConstraint;
   /** Trusted server-stamped authority for an explicitly capped scheduled run. */

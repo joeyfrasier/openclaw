@@ -6,6 +6,7 @@ import { readExistingAgentSchemaMeta } from "../state/openclaw-agent-db-schema-h
 import { isErrno } from "./errors.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { resolveSqliteDatabaseFilePaths } from "./sqlite-files.js";
+import { prepareSqliteReadOnlyLocationSync } from "./sqlite-readonly-location.js";
 import { quoteSqliteIdentifier } from "./sqlite-schema-sql.js";
 import {
   ensureMigrationDir,
@@ -71,8 +72,10 @@ export function inspectLegacyAgentDir(
   }
 
   let database: ReturnType<typeof openNodeSqliteDatabase> | undefined;
+  let prepared: ReturnType<typeof prepareSqliteReadOnlyLocationSync> | undefined;
   try {
-    const opened = openNodeSqliteDatabase(databasePath, { readOnly: true });
+    prepared = prepareSqliteReadOnlyLocationSync(databasePath);
+    const opened = openNodeSqliteDatabase(prepared.location, { readOnly: true });
     database = opened;
     const schemaOwner = readExistingAgentSchemaMeta(opened);
     if (!schemaOwner || schemaOwner.role !== "agent") {
@@ -110,7 +113,11 @@ export function inspectLegacyAgentDir(
   } catch (error) {
     return legacyAgentInspectionFailure(`legacy agent database ${databasePath}`, error);
   } finally {
-    database?.close();
+    try {
+      database?.close();
+    } finally {
+      prepared?.cleanup();
+    }
   }
 }
 

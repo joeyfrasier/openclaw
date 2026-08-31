@@ -637,6 +637,7 @@ export type ChannelApprovalCapability = ChannelApprovalAdapter & {
     accountId?: string | null;
     senderId?: string | null;
     approvalKind: ChannelApprovalKind;
+    decision: "allow-once" | "allow-always" | "deny";
   }) => ChannelApproveCommandBehavior | undefined;
 };
 

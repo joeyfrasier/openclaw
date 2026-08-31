@@ -226,8 +226,12 @@ export async function readConfigFileSnapshotForRuntimeTransaction(
 
 export async function readConfigFileSnapshotForWrite(options?: {
   skipPluginValidation?: boolean;
+  observe?: boolean;
 }): Promise<ReadConfigFileSnapshotForWriteResult> {
-  const readOptions = options?.skipPluginValidation ? { pluginValidation: "skip" as const } : {};
+  const readOptions = {
+    ...(options?.skipPluginValidation ? { pluginValidation: "skip" as const } : {}),
+    ...(options?.observe === false ? { observe: false as const } : {}),
+  };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const processIo = createConfigIO(readOptions);

@@ -58,6 +58,7 @@ export function listConfiguredRefreshInputs(
     config,
     options.defaultWorkspaceDir,
     options.allowGatewaySubagentBinding,
+    options.additionalRuntimePluginSelectionsByAgentId,
   )) {
     const input = normalizePreparedModelRuntimeInput(rawInput);
     const preservedWorkspaceDir = input.agentId

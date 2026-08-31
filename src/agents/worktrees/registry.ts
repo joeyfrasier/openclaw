@@ -3,13 +3,12 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { Insertable, Selectable } from "kysely";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import { isLockOwnerDefinitelyStale } from "../../infra/stale-lock-file.js";
-import { withExistingOpenClawStateDatabaseReadOnly } from "../../state/openclaw-state-db-readonly.js";
-import { tableExists } from "../../state/openclaw-state-db-schema-helpers.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
 } from "../../state/openclaw-state-db.js";
+import { withRegistryMigrationRead } from "./registry-migration-read.js";
 import type {
   ManagedWorktreeOwnerKind,
   ManagedWorktreeRecord,
@@ -161,22 +160,14 @@ export function listRegistryWorktrees(env: NodeJS.ProcessEnv): ManagedWorktreeRe
 }
 
 export function listRegistryWorktreesForMigration(env: NodeJS.ProcessEnv): ManagedWorktreeRecord[] {
-  return (
-    withExistingOpenClawStateDatabaseReadOnly(
-      ({ db }) => {
-        if (!tableExists(db, "worktrees")) {
-          return [];
-        }
-        const query = kyselyFor(db)
-          .selectFrom("worktrees")
-          .selectAll()
-          .orderBy("created_at", "desc")
-          .orderBy("id", "asc");
-        return executeSqliteQuerySync(db, query).rows.map(rowToRecord);
-      },
-      { env },
-    ) ?? []
-  );
+  return withRegistryMigrationRead(env, [], (db) => {
+    const query = kyselyFor(db)
+      .selectFrom("worktrees")
+      .selectAll()
+      .orderBy("created_at", "desc")
+      .orderBy("id", "asc");
+    return executeSqliteQuerySync(db, query).rows.map(rowToRecord);
+  });
 }
 
 export function getRegistryWorktree(
@@ -205,13 +196,14 @@ export function getRegistryWorktreeProvisionedPaths(
 }
 
 export function hasLegacyRegistryWorktrees(env: NodeJS.ProcessEnv): boolean {
-  const db = dbFor(env);
-  const query = kyselyFor(db)
-    .selectFrom("worktrees")
-    .select("id")
-    .where("provisioned_paths_json", "is", null)
-    .limit(1);
-  return executeSqliteQuerySync(db, query).rows.length > 0;
+  return withRegistryMigrationRead(env, false, (db) => {
+    const query = kyselyFor(db)
+      .selectFrom("worktrees")
+      .select("id")
+      .where("provisioned_paths_json", "is", null)
+      .limit(1);
+    return executeSqliteQuerySync(db, query).rows.length > 0;
+  });
 }
 
 export function discardLegacyRegistryWorktrees(env: NodeJS.ProcessEnv): number {

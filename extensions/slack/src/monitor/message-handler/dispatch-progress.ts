@@ -338,7 +338,9 @@ export function createSlackProgressRuntime(runtimeParams: {
     reasoningLinePrefix: "🧠 ",
     commentaryLinePrefix: "",
     reasoningGate: previewToolProgressEnabled,
-    commentaryItalics: true,
+    // Append-only native streams cannot retract each snapshot's closing `_`
+    // before appending its suffix. Draft messages can still render the lane italicized.
+    commentaryItalics: !useNativeProgressStreaming,
     buildProgressEventLine: (input, options) =>
       input.event === "tool" || input.event === "item" || input.event === "command-output"
         ? buildChannelProgressDraftLineForEntry(account.config, input, options)

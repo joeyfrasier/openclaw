@@ -1043,6 +1043,20 @@ export async function prepareCliRunContext(
     projectedToolsBeforePromptBuild,
     promptBuildToolsAllow,
   );
+  const deliveryFilteredProjectedTools = params.disableMessageTool
+    ? hookFilteredProjectedTools.filter((tool) => normalizeToolPolicyName(tool.name) !== "message")
+    : hookFilteredProjectedTools;
+  if (params.disableMessageTool && params.cliToolAvailability) {
+    params = {
+      ...params,
+      cliToolAvailability: {
+        native: params.cliToolAvailability.native,
+        openClaw: params.cliToolAvailability.openClaw.filter(
+          (toolName) => normalizeToolPolicyName(toolName) !== "message",
+        ),
+      },
+    };
+  }
   if (
     promptBuildRestrictsTools &&
     (backendResolved.nativeToolMode === "always-on" ||
@@ -1058,7 +1072,7 @@ export async function prepareCliRunContext(
         ...params,
         cliToolAvailability: {
           native: [],
-          openClaw: hookFilteredProjectedTools.map((tool) => tool.name),
+          openClaw: deliveryFilteredProjectedTools.map((tool) => tool.name),
         },
       };
     }
@@ -1068,7 +1082,7 @@ export async function prepareCliRunContext(
       ...params,
       cliToolAvailability: {
         native: [],
-        openClaw: hookFilteredProjectedTools.map((tool) => tool.name),
+        openClaw: deliveryFilteredProjectedTools.map((tool) => tool.name),
       },
     };
   }
@@ -1088,10 +1102,10 @@ export async function prepareCliRunContext(
   }
   const projectedTools = params.cliToolAvailability
     ? applyEmbeddedAttemptToolsAllow(
-        hookFilteredProjectedTools,
+        deliveryFilteredProjectedTools,
         params.cliToolAvailability.openClaw,
       )
-    : hookFilteredProjectedTools;
+    : deliveryFilteredProjectedTools;
   const promptTools = bundleMcpEnabled ? projectedTools : [];
   const authorizedPromptBuildResult = await (async () => {
     const toolAuthorityFingerprint = params.toolAuthorityFingerprint;
@@ -1140,7 +1154,9 @@ export async function prepareCliRunContext(
   // tool universe for the run.
   const restrictedLoopbackToolsAllow =
     params.cliToolAvailability?.openClaw ??
-    (promptBuildRestrictsTools ? projectedTools.map((tool) => tool.name) : undefined);
+    (promptBuildRestrictsTools || params.disableMessageTool
+      ? projectedTools.map((tool) => tool.name)
+      : undefined);
   const mcpGrantContext =
     mcpContextBase && restrictedLoopbackToolsAllow !== undefined
       ? { ...mcpContextBase, toolsAllow: [...restrictedLoopbackToolsAllow] }

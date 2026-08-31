@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
+import { prepareSqliteReadOnlyLocationSync } from "../infra/sqlite-readonly-location.js";
 import { quoteSqliteIdentifier } from "../infra/sqlite-schema-sql.js";
 import { readSqliteUserVersion } from "../infra/sqlite-user-version.js";
 import {
@@ -338,11 +339,16 @@ export function detectOpenClawStateDatabaseSchemaMigrations(
   if (!existsSync(pathname)) {
     return [];
   }
-  const db = openNodeSqliteDatabase(pathname, { readOnly: true });
+  const prepared = prepareSqliteReadOnlyLocationSync(pathname);
   try {
-    return detectOpenClawStateDatabaseSchemaMigrationsFromDatabase(db, pathname);
+    const db = openNodeSqliteDatabase(prepared.location, { readOnly: true });
+    try {
+      return detectOpenClawStateDatabaseSchemaMigrationsFromDatabase(db, pathname);
+    } finally {
+      db.close();
+    }
   } finally {
-    db.close();
+    prepared.cleanup();
   }
 }
 

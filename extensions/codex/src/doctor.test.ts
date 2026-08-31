@@ -73,7 +73,9 @@ function managedDeps(version = CODEX_APP_SERVER_VERSION) {
   };
 }
 
-function createCheck(deps: ReturnType<typeof managedDeps>) {
+function createCheck(
+  deps: NonNullable<Parameters<typeof registerCodexManagedAppServerDoctorChecks>[1]>,
+) {
   let check: HealthCheck | undefined;
   registerCodexManagedAppServerDoctorChecks(
     {
@@ -179,6 +181,47 @@ describe("managed Codex doctor check", () => {
       }),
     ]);
   });
+
+  it.each([0, 1])(
+    "isolates and cleans up the managed version probe on exit %s",
+    async (exitCode) => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-codex-doctor-version-"));
+      const command = path.join(root, "codex-version-probe");
+      const probeHomePath = path.join(root, "probe-home.json");
+      try {
+        await fs.writeFile(
+          command,
+          `#!/usr/bin/env node\nconst fs = require("node:fs");\nfs.writeFileSync(${JSON.stringify(probeHomePath)}, JSON.stringify(process.env.CODEX_HOME ?? null));\nconsole.log("codex-cli ${CODEX_APP_SERVER_VERSION}");\nprocess.exit(${exitCode});\n`,
+          { mode: 0o700 },
+        );
+        const base = managedDeps();
+        const deps = {
+          resolveStartOptions: base.resolveStartOptions,
+          isDesktopCommand: base.isDesktopCommand,
+          resolveNativeCommand: vi.fn(() => command),
+        };
+        const check = createCheck(deps);
+        const findings = await check.detect(context(config()));
+        expect(findings).toEqual(
+          exitCode === 0
+            ? []
+            : [
+                expect.objectContaining({
+                  checkId: CODEX_MANAGED_APP_SERVER_CHECK_ID,
+                  severity: "error",
+                }),
+              ],
+        );
+        const probeHome = JSON.parse(await fs.readFile(probeHomePath, "utf8")) as string;
+        expect(path.basename(probeHome)).toBe("codex-home");
+        expect(path.basename(path.dirname(probeHome))).toMatch(/^openclaw-codex-version-/u);
+        expect(probeHome).not.toBe(process.env.CODEX_HOME);
+        await expect(fs.stat(path.dirname(probeHome))).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it.each([
     ["custom command", { command: "/operator/codex" }],

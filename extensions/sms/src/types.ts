@@ -1,6 +1,11 @@
 // Sms type declarations define plugin contracts.
 import type { SecretInput } from "openclaw/plugin-sdk/secret-input";
 
+type SmsExecApprovalConfig = {
+  enabled?: boolean;
+  approvers?: Array<string | number>;
+};
+
 type SmsChannelConfigFields = {
   /** Megabyte cap for media this channel accepts and delivers. */
   mediaMaxMb?: number;
@@ -15,6 +20,8 @@ type SmsChannelConfigFields = {
   dangerouslyDisableSignatureValidation?: boolean;
   dmPolicy?: "pairing" | "open" | "allowlist" | "disabled";
   allowFrom?: string | Array<string | number>;
+  allowTo?: string | Array<string | number>;
+  execApprovals?: SmsExecApprovalConfig;
   textChunkLimit?: number;
 };
 
@@ -38,6 +45,8 @@ export interface ResolvedSmsAccount {
   dangerouslyDisableSignatureValidation: boolean;
   dmPolicy: "pairing" | "open" | "allowlist" | "disabled";
   allowFrom: string[];
+  allowTo?: string[];
+  execApprovals?: { enabled?: boolean; approvers: string[] };
   textChunkLimit: number;
   mediaMaxBytes?: number;
 }

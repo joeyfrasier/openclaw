@@ -373,6 +373,13 @@
                 "type": "string",
                 "enum": ["read-only", "workspace"]
               },
+              "filesystem": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": ["read", "write", "deny"]
+                }
+              },
               "mode": {
                 "type": "string",
                 "enum": ["limited", "full"]
@@ -722,6 +729,11 @@
     "appServer.networkProxy.domains": {
       "label": "Network Domains",
       "help": "Domain allow and deny rules for Codex sandboxed networking.",
+      "advanced": true
+    },
+    "appServer.networkProxy.filesystem": {
+      "label": "Additional Filesystem Permissions",
+      "help": "Additional Codex filesystem permission-profile entries. The generated minimal and workspace-root entries remain authoritative.",
       "advanced": true
     },
     "appServer.networkProxy.unixSockets": {

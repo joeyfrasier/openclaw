@@ -65,6 +65,7 @@ import {
   shouldHandleBareRoot,
   shouldEnsureCliPath,
   shouldStartProxyForCli,
+  shouldUseArtifactPreservingCliReadScope,
   shouldUseRootHelpFastPath,
   shouldUseSetupOnboardConfigureHelpFastPath,
 } from "./run-main-policy.js";
@@ -80,6 +81,7 @@ export {
   shouldHandleBareRoot,
   shouldEnsureCliPath,
   shouldStartProxyForCli,
+  shouldUseArtifactPreservingCliReadScope,
   shouldUseRootHelpFastPath,
   shouldUseSetupOnboardConfigureHelpFastPath,
 } from "./run-main-policy.js";
@@ -1075,41 +1077,56 @@ export async function runCli(
 ) {
   const originalArgv = normalizeWindowsArgv(argv);
   const builtInMachineOutput = resolveBuiltInMachineOutput(originalArgv);
-  return await withConsoleLogsRoutedToStderrForJson(
-    originalArgv,
-    () => {
-      const run = async () => {
-        try {
-          return await runCliWithPreparedOutputMode(originalArgv, {
-            ...options,
-            builtInMachineOutput,
-          });
-        } catch (error) {
-          // Selection and Commander preactions run before the Gateway action's failure boundary.
-          if (
-            isGatewayRunInvocationArgv(originalArgv) &&
-            !resolveCliArgvInvocation(originalArgv).hasHelpOrVersion
-          ) {
-            const { handleGatewayStartupMaintenance } =
-              await import("./gateway-cli/startup-maintenance.js");
-            if (await handleGatewayStartupMaintenance(error)) {
-              return;
+  const runPrepared = async () =>
+    await withConsoleLogsRoutedToStderrForJson(
+      originalArgv,
+      () => {
+        const run = async () => {
+          try {
+            return await runCliWithPreparedOutputMode(originalArgv, {
+              ...options,
+              builtInMachineOutput,
+            });
+          } catch (error) {
+            // Selection and Commander preactions run before the Gateway action's failure boundary.
+            if (
+              isGatewayRunInvocationArgv(originalArgv) &&
+              !resolveCliArgvInvocation(originalArgv).hasHelpOrVersion
+            ) {
+              const { handleGatewayStartupMaintenance } =
+                await import("./gateway-cli/startup-maintenance.js");
+              if (await handleGatewayStartupMaintenance(error)) {
+                return;
+              }
             }
+            throw error;
           }
-          throw error;
-        }
-      };
-      // Nested registrars and late actions share this lightweight owner, even when no
-      // top-level plugin preparation is needed. Gateway retains its boot/process owner.
-      return isGatewayRunInvocationArgv(originalArgv)
-        ? run()
-        : withPluginCache(createPluginCache(), run);
-    },
-    {
-      machineOutput: builtInMachineOutput,
-      restoreChanges: true,
-      retainRoutingUntilProcessExit: options.retainConsoleRoutingUntilProcessExit,
-    },
+        };
+        // Nested registrars and late actions share this lightweight owner, even when no
+        // top-level plugin preparation is needed. Gateway retains its boot/process owner.
+        return isGatewayRunInvocationArgv(originalArgv)
+          ? run()
+          : withPluginCache(createPluginCache(), run);
+      },
+      {
+        machineOutput: builtInMachineOutput,
+        restoreChanges: true,
+        retainRoutingUntilProcessExit: options.retainConsoleRoutingUntilProcessExit,
+      },
+    );
+  if (!shouldUseArtifactPreservingCliReadScope(originalArgv)) {
+    return await runPrepared();
+  }
+  // Startup discovery reads state before Commander registers the final action.
+  // Enclose that same invocation (including its plugin cache) in the diagnostic
+  // snapshot epoch so inspection cannot alter source WAL/SHM coordination bytes.
+  const [{ withArtifactPreservingSqliteReadLocations }, stateDatabaseReads] = await Promise.all([
+    import("../infra/sqlite-readonly-operations.js"),
+    import("../state/openclaw-state-db-readonly.js"),
+  ]);
+  return await withArtifactPreservingSqliteReadLocations(
+    async () =>
+      await stateDatabaseReads.withArtifactPreservingOpenClawStateDatabaseReads(runPrepared),
   );
 }
 

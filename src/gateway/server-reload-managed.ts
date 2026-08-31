@@ -48,6 +48,7 @@ import {
   setRequiredSharedGatewaySessionGenerationIfOwned,
   type SharedGatewaySessionGenerationOwnership,
 } from "./server-shared-auth-generation.js";
+import { readGatewayPersistedRuntimePluginSelections } from "./server-startup-model-runtime-selections.js";
 
 function canAdvancePreparedModelRuntimeConfigInPlace(plan: GatewayReloadPlan): boolean {
   return isNoopGatewayReloadPlan(plan) && !shouldRewarmProviderAuthState(plan);
@@ -501,10 +502,13 @@ export function startManagedGatewayConfigReloader(
         // stamping the rebuilt owner with the pre-resolution identity makes every
         // strict catalog read reject it -- the failure this fix exists to remove.
         const pluginMetadataSnapshot = params.getPluginMetadataSnapshot?.();
-        await refreshPreparedModelRuntimeSnapshots(lastCommittedRuntimeConfig ?? nextConfig, {
+        const runtimeConfig = lastCommittedRuntimeConfig ?? nextConfig;
+        await refreshPreparedModelRuntimeSnapshots(runtimeConfig, {
           gatewayLifecycle: true,
           catalogMode: "static",
           allowGatewaySubagentBinding: true,
+          additionalRuntimePluginSelectionsByAgentId:
+            readGatewayPersistedRuntimePluginSelections(runtimeConfig),
           ...(pluginMetadataSnapshot ? { pluginMetadataSnapshot } : {}),
         });
       }

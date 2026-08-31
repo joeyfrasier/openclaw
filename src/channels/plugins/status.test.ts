@@ -74,6 +74,31 @@ describe("buildChannelAccountSnapshotFromAccount", () => {
     });
   });
 
+  it("preserves a runtime-resolved configured state over a raw SecretRef descriptor", async () => {
+    const account = { enabled: true, configured: false };
+    const plugin = {
+      config: {
+        describeAccount: () => ({ accountId: "default", configured: false }),
+      },
+      status: {
+        buildAccountSnapshot: () => ({ accountId: "default", configured: false }),
+      },
+    } as unknown as ChannelPlugin<typeof account>;
+
+    await expect(
+      buildChannelAccountSnapshotFromAccount({
+        plugin,
+        cfg: {} as OpenClawConfig,
+        accountId: "default",
+        account,
+        runtime: { accountId: "default", configured: true, running: true },
+      }),
+    ).resolves.toMatchObject({
+      configured: true,
+      running: true,
+    });
+  });
+
   it("uses descriptor linkage when no live link resolver exists", async () => {
     const account = { enabled: true, configured: true };
     const plugin = {

@@ -90,6 +90,7 @@ async function runAuthProfileHealth(ctx: DoctorHealthFlowContext): Promise<void>
   const authProfileMigration = await maybeMigrateAuthProfileJsonStoresToSqlite({
     cfg: authConfigCandidate,
     prompter: ctx.prompter,
+    readOnly: !ctx.prompter.shouldRepair,
     openAICodexAuthProfileIdMap,
     ...(ctx.env ? { env: ctx.env } : {}),
   });

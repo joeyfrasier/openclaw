@@ -690,6 +690,39 @@ describe("server-channels auto restart", () => {
     expect(account?.lastError).toBe("channel exited without an error");
   });
 
+  it("keeps runtime configured truth when the raw account descriptor cannot resolve a SecretRef", async () => {
+    const startAccount = vi.fn(async (ctx: ChannelGatewayContext<TestAccount>) => {
+      ctx.setStatus({ accountId: DEFAULT_ACCOUNT_ID, configured: true, running: true });
+      await new Promise<void>((resolve) => {
+        ctx.abortSignal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    });
+    installTestRegistry(
+      createTestPlugin({
+        account: { enabled: true, configured: true },
+        describeAccount: () => ({
+          accountId: DEFAULT_ACCOUNT_ID,
+          enabled: true,
+          configured: false,
+        }),
+        isConfigured: () => true,
+        startAccount,
+      }),
+    );
+    const manager = createManager();
+
+    await manager.startChannels();
+    await waitForMicrotaskCondition(
+      () => startAccount.mock.calls.length === 1,
+      "expected channel task to start",
+    );
+
+    expect(manager.getRuntimeSnapshot().channelAccounts.discord?.default).toMatchObject({
+      configured: true,
+      running: true,
+    });
+  });
+
   it("does not record a clean-exit error for manual abort stops", async () => {
     const startAccount = vi.fn(
       async ({ abortSignal }: { abortSignal: AbortSignal }) =>

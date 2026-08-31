@@ -75,8 +75,11 @@ export function ensureValidConfigSnapshotForCli(
   exitCliAfterOutput(runtime, 1);
 }
 
-export async function loadValidConfigForWrite(runtime: RuntimeEnv = defaultRuntime) {
-  const prepared = await readConfigFileSnapshotForWrite();
+export async function loadValidConfigForWrite(
+  runtime: RuntimeEnv = defaultRuntime,
+  options: { observe?: boolean } = {},
+) {
+  const prepared = await readConfigFileSnapshotForWrite(options);
   ensureValidConfigSnapshotForCli(prepared.snapshot, runtime);
   return prepared;
 }

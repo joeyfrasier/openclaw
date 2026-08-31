@@ -6,7 +6,7 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../../../infra/kysely-sync.js";
-import { openNodeSqliteDatabase } from "../../../infra/node-sqlite.js";
+import { withExistingOpenClawStateDatabaseReadOnly } from "../../../state/openclaw-state-db-readonly.js";
 import type { DB as OpenClawStateDatabase } from "../../../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
@@ -52,15 +52,13 @@ export function hasLegacyCronMigrationReceiptReadOnly(source: LegacyCronMigratio
   if (!fs.existsSync(statePath)) {
     return false;
   }
-  const db = openNodeSqliteDatabase(statePath, { readOnly: true });
-  try {
-    if (!tableExists(db, "migration_sources")) {
-      return false;
-    }
-    return hasLegacyCronMigrationReceiptInDatabase(db, source);
-  } finally {
-    db.close();
-  }
+  return (
+    withExistingOpenClawStateDatabaseReadOnly(
+      ({ db }) =>
+        tableExists(db, "migration_sources") && hasLegacyCronMigrationReceiptInDatabase(db, source),
+      { path: statePath },
+    ) ?? false
+  );
 }
 
 export function acquireLegacyCronMigrationReceipt(
