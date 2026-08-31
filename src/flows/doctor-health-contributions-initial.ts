@@ -306,17 +306,19 @@ export function resolveInitialDoctorHealthContributions(params: {
         async detect(ctx) {
           const { detectStateIntegrityHealthIssues, stateIntegrityIssueToHealthFinding } =
             await import("../commands/doctor-state-integrity.js");
+          const filesystemEnv = ctx.sourceFilesystemEnv ?? ctx.env ?? process.env;
           return detectStateIntegrityHealthIssues(ctx.cfg, {
             configPath: ctx.configPath,
-            env: process.env,
+            env: filesystemEnv,
           }).map(stateIntegrityIssueToHealthFinding);
         },
         repair: legacyOwnedRepair(async (ctx) => {
           const { detectStateIntegrityHealthIssues, stateIntegrityIssueToRepairEffect } =
             await import("../commands/doctor-state-integrity.js");
+          const filesystemEnv = ctx.sourceFilesystemEnv ?? ctx.env ?? process.env;
           return detectStateIntegrityHealthIssues(ctx.cfg, {
             configPath: ctx.configPath,
-            env: process.env,
+            env: filesystemEnv,
           }).map(stateIntegrityIssueToRepairEffect);
         }, "legacy doctor state integrity contribution owns state repairs"),
       },

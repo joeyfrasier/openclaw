@@ -1104,6 +1104,7 @@ export function runAgentAttempt(params: {
             onContextEngineTurnCandidate: params.onContextEngineTurnCandidate,
             suppressNextUserMessagePersistence: params.suppressPromptPersistenceOnRetry === true,
             disableTools,
+            disableMessageTool: params.opts.disableMessageTool,
             allowEmptyAssistantReplyAsSilent: isSubagentLane || isSubagentAnnounceHandoff,
             ...(forkStoreParams && !forkCliSessionOnResume
               ? {

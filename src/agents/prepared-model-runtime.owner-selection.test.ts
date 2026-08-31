@@ -230,6 +230,35 @@ describe("prepared model runtime owner selection", () => {
     ).toContainEqual([{ provider: "openai", modelId: "gpt-5", runtime: "openclaw" }]);
   });
 
+  it("merges persisted locked-session harness selections into configured startup owners", async () => {
+    mocks.configuredAgentIds = ["default"];
+    const config = {
+      agents: {
+        defaults: {
+          model: "openai/gpt-5",
+          models: {
+            "openai/gpt-5": { params: { transport: "sse", openaiWsWarmup: false } },
+          },
+        },
+      },
+    };
+
+    await refreshPreparedModelRuntimeSnapshots(config, {
+      additionalRuntimePluginSelectionsByAgentId: new Map([
+        ["default", [{ provider: "openai", modelId: "gpt-5", runtime: "codex" }]],
+      ]),
+      catalogMode: "static",
+      gatewayLifecycle: true,
+    });
+
+    expect(
+      mocks.loadAgentRuntimePluginRegistryHandle.mock.calls.map((call) => call[0].selections),
+    ).toContainEqual([
+      { provider: "openai", modelId: "gpt-5", runtime: "codex" },
+      { provider: "openai", modelId: "gpt-5", runtime: "openclaw" },
+    ]);
+  });
+
   it("reuses the configured owner for its prepared plugin harness selections", async () => {
     mocks.configuredAgentIds = ["default"];
     const config = { agents: { defaults: { model: "openai/gpt-5.5" } } };

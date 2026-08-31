@@ -26,11 +26,14 @@ import {
   type HealthFinding,
 } from "../flows/health-checks.js";
 import { prepareSqliteReadOnlyLocationSync } from "../infra/sqlite-readonly-location.js";
+import { withArtifactPreservingSqliteReadLocations } from "../infra/sqlite-readonly-operations.js";
+import { withArtifactPreservingPluginLoaderReads } from "../plugins/artifact-preserving-loader-scope.js";
 import {
   resolvePluginInstallRoots,
   withPluginInstallRoots,
 } from "../plugins/install-root-context.js";
 import type { RuntimeEnv } from "../runtime.js";
+import { withArtifactPreservingOpenClawStateDatabaseReads } from "../state/openclaw-state-db-readonly.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 
 interface DoctorLintCliOptions {
@@ -46,7 +49,8 @@ interface DoctorLintCliOptions {
 type DoctorLintStateView = {
   pluginMetadataEnv: NodeJS.ProcessEnv;
   readConfigSnapshot: () => ReturnType<typeof readConfigFileSnapshot>;
-  sourceEnv: NodeJS.ProcessEnv;
+  inspectionEnv: NodeJS.ProcessEnv;
+  sourceFilesystemEnv: NodeJS.ProcessEnv;
   runWithPluginStateSnapshot: <T>(
     run: (pluginMetadataEnv: NodeJS.ProcessEnv) => Promise<T>,
   ) => Promise<T>;
@@ -85,7 +89,7 @@ export async function runDoctorLintCli(
   runtime: RuntimeEnv,
   opts: DoctorLintCliOptions,
 ): Promise<number> {
-  const execution = await prepareDoctorLintExecution(runtime, opts);
+  const execution = await prepareDoctorLintArtifactPreserving(runtime, opts);
   execution.writeOutput();
   return execution.exitCode;
 }
@@ -94,8 +98,23 @@ export async function runDoctorLintCli(
 export async function collectDoctorFindings(
   runtime: RuntimeEnv,
 ): Promise<readonly HealthFinding[]> {
-  const execution = await prepareDoctorLintExecution(runtime, { severityMin: "info" });
+  const execution = await prepareDoctorLintArtifactPreserving(runtime, { severityMin: "info" });
   return execution.findings;
+}
+
+async function prepareDoctorLintArtifactPreserving(
+  runtime: RuntimeEnv,
+  opts: DoctorLintCliOptions,
+): Promise<DoctorLintExecution> {
+  return await withArtifactPreservingSqliteReadLocations(
+    async () =>
+      await withArtifactPreservingOpenClawStateDatabaseReads(
+        async () =>
+          await withArtifactPreservingPluginLoaderReads(
+            async () => await prepareDoctorLintExecution(runtime, opts),
+          ),
+      ),
+  );
 }
 
 async function prepareDoctorLintExecution(
@@ -109,13 +128,17 @@ async function prepareDoctorLintExecution(
   }
   maybeLoadDotEnvForConfig(process.env);
   const sourceEnv = { ...process.env };
-  const pluginStateMode = resolveBundledHealthCheckPluginStateMode(opts);
+  const pluginStateMode =
+    opts.onlyIds?.includes("core/doctor/legacy-state") === true
+      ? "isolated"
+      : resolveBundledHealthCheckPluginStateMode(opts);
   let execution: DoctorLintExecution;
   if (pluginStateMode === "direct") {
     execution = await executeDoctorLint(runtime, opts, sevMin, {
       pluginMetadataEnv: sourceEnv,
       readConfigSnapshot: () => readConfigFileSnapshot({ observe: false }),
-      sourceEnv,
+      inspectionEnv: sourceEnv,
+      sourceFilesystemEnv: sourceEnv,
       runWithPluginStateSnapshot: async (run) =>
         await withReadOnlyPluginStateSnapshot(sourceEnv, run),
     });
@@ -130,13 +153,14 @@ async function prepareDoctorLintExecution(
     execution = await executeDoctorLint(runtime, opts, sevMin, {
       pluginMetadataEnv: sourceEnv,
       readConfigSnapshot: () => configIo.readConfigFileSnapshot(),
-      sourceEnv,
+      inspectionEnv: sourceEnv,
+      sourceFilesystemEnv: sourceEnv,
       runWithPluginStateSnapshot: async (run) =>
         await withReadOnlyPluginStateSnapshot(sourceEnv, run),
     });
   } else {
     try {
-      execution = await withReadOnlyPluginStateSnapshot(sourceEnv, async (pluginMetadataEnv) => {
+      execution = await withReadOnlyPluginStateSnapshot(sourceEnv, async (inspectionEnv) => {
         const sourceConfigPath = resolveConfigPath(sourceEnv, resolveStateDir(sourceEnv));
         const configIo = createConfigIO({
           env: sourceEnv,
@@ -144,10 +168,14 @@ async function prepareDoctorLintExecution(
           observe: false,
         });
         return await executeDoctorLint(runtime, opts, sevMin, {
-          pluginMetadataEnv,
+          pluginMetadataEnv: inspectionEnv,
           readConfigSnapshot: () => configIo.readConfigFileSnapshot(),
-          sourceEnv,
-          runWithPluginStateSnapshot: async (run) => await run(pluginMetadataEnv),
+          inspectionEnv,
+          sourceFilesystemEnv: sourceEnv,
+          // Persistent-state checks, including core legacy-state detectors,
+          // receive the same private database view. Filesystem-only checks keep
+          // the separately pinned source environment above.
+          runWithPluginStateSnapshot: async (run) => await run(inspectionEnv),
         });
       });
     } catch (error) {
@@ -192,14 +220,15 @@ async function executeDoctorLint(
     };
   }
 
-  const sourceEnv = { ...stateView.sourceEnv };
+  const inspectionEnv = { ...stateView.inspectionEnv };
   const defaultAgentId = tryResolveDefaultAgentId(snapshot.config);
   const ctx: HealthCheckContext = {
     mode: "lint",
     runtime,
     cfg: snapshot.config,
     cwd: defaultAgentId ? resolveAgentWorkspaceDir(snapshot.config, defaultAgentId) : process.cwd(),
-    env: sourceEnv,
+    env: inspectionEnv,
+    sourceFilesystemEnv: { ...stateView.sourceFilesystemEnv },
     allowExecSecretRefs: opts.allowExec === true,
     ...(snapshot.path !== undefined ? { configPath: snapshot.path } : {}),
   };
@@ -306,7 +335,21 @@ async function withReadOnlyPluginStateSnapshot<T>(
         { ...installRoots, stateDir: privateStateDir },
         async () => {
           runStarted = true;
-          return await run(privateEnv);
+          const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+          process.env.OPENCLAW_STATE_DIR = privateStateDir;
+          try {
+            // Some legacy migration owners predate explicit HealthCheckContext
+            // env threading and still resolve process.env internally. Keep that
+            // compatibility surface pointed at the same private state snapshot
+            // for the entire lint check epoch, then restore it exactly.
+            return await run(privateEnv);
+          } finally {
+            if (previousStateDir === undefined) {
+              delete process.env.OPENCLAW_STATE_DIR;
+            } else {
+              process.env.OPENCLAW_STATE_DIR = previousStateDir;
+            }
+          }
         },
       ),
     };

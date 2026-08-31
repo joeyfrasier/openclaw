@@ -8,6 +8,7 @@ import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/st
 import { formatErrorMessage } from "../infra/errors.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
 import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
+import { isArtifactPreservingPluginLoaderReadActive } from "./artifact-preserving-loader-scope.js";
 import { resolveOpenClawDevSourceRoot } from "./dev-source-root.js";
 import {
   parsePluginCacheJson,
@@ -175,6 +176,9 @@ function resolvePluginLoaderJitiFsCacheDir(params: LoaderModuleResolveParams = {
 function resolvePluginLoaderJitiFsCacheOption(
   params: LoaderModuleResolveParams = {},
 ): false | string {
+  if (isArtifactPreservingPluginLoaderReadActive()) {
+    return false;
+  }
   return shouldUseJitiFsCache() ? resolvePluginLoaderJitiFsCacheDir(params) : false;
 }
 

@@ -82,6 +82,7 @@ const hoisted = vi.hoisted(() => {
   const refreshPreparedModelRuntimeSnapshots = vi.fn(
     async (_cfg?: unknown, _options?: unknown) => {},
   );
+  const readGatewayPersistedRuntimePluginSelections = vi.fn(() => new Map());
   const prewarmConfigDrivenReplyRuntime = vi.fn(async () => {});
   const prewarmContextWindowCacheAfterReady = vi.fn(async () => {});
   const scheduleGatewayHandlerPrewarm = vi.fn(() => ({ stop: vi.fn() }));
@@ -122,6 +123,7 @@ const hoisted = vi.hoisted(() => {
     getModelRefStatus,
     prepareModelRuntimeSnapshot,
     refreshPreparedModelRuntimeSnapshots,
+    readGatewayPersistedRuntimePluginSelections,
     prewarmConfigDrivenReplyRuntime,
     prewarmContextWindowCacheAfterReady,
     scheduleGatewayHandlerPrewarm,
@@ -228,6 +230,10 @@ vi.mock("../agents/model-selection.js", () => ({
 vi.mock("../agents/prepared-model-runtime.js", () => ({
   publishPreparedModelRuntimeSnapshot: hoisted.prepareModelRuntimeSnapshot,
   refreshPreparedModelRuntimeSnapshots: hoisted.refreshPreparedModelRuntimeSnapshots,
+}));
+
+vi.mock("./server-startup-model-runtime-selections.js", () => ({
+  readGatewayPersistedRuntimePluginSelections: hoisted.readGatewayPersistedRuntimePluginSelections,
 }));
 
 vi.mock("../auto-reply/reply/get-reply-from-config.runtime.js", () => ({
@@ -515,6 +521,7 @@ describe("startGatewayPostAttachRuntime", () => {
     hoisted.prepareModelRuntimeSnapshot.mockResolvedValue({});
     hoisted.refreshPreparedModelRuntimeSnapshots.mockReset();
     hoisted.refreshPreparedModelRuntimeSnapshots.mockResolvedValue(undefined);
+    hoisted.readGatewayPersistedRuntimePluginSelections.mockClear();
     hoisted.prewarmConfigDrivenReplyRuntime.mockReset();
     hoisted.prewarmConfigDrivenReplyRuntime.mockResolvedValue(undefined);
     hoisted.prewarmContextWindowCacheAfterReady.mockReset();

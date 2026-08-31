@@ -545,6 +545,10 @@ const legacyStateCheck: HealthCheck & { readonly defaultEnabled: false } = {
     const detected = await detectLegacyStateMigrations({
       cfg: ctx.cfg,
       doctorOnlyStateMigrations: true,
+      // Lint runs this check against a private artifact-preserving state view.
+      // Falling back to process.env would silently reopen the operator's source
+      // SQLite family and can advance WAL/SHM coordination bytes.
+      env: ctx.env,
       legacySessionSurfaces,
     });
     return [

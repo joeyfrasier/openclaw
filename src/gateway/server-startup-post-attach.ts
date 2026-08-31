@@ -45,6 +45,7 @@ import type { GatewaySidecarStartupMode } from "./server-sidecar-startup-mode.js
 import { scheduleContextCachePrewarm } from "./server-startup-context-cache-prewarm.js";
 import { scheduleGatewayHandlerPrewarm } from "./server-startup-handler-prewarm.js";
 import type { logGatewayStartup } from "./server-startup-log.js";
+import { readGatewayPersistedRuntimePluginSelections } from "./server-startup-model-runtime-selections.js";
 import {
   createGatewayStartupOutcomeRecorder,
   formatGatewayStartupOutcomes,
@@ -530,10 +531,26 @@ async function publishConfiguredModelRuntimeSnapshots(params: {
   if (params.isCurrent?.() === false) {
     return;
   }
-  await refreshPreparedModelRuntimeSnapshots(params.getConfig ?? params.cfg, {
+  let persistedSelections:
+    | ReturnType<typeof readGatewayPersistedRuntimePluginSelections>
+    | undefined;
+  const readRuntimeConfig = (config: OpenClawConfig) => {
+    persistedSelections = readGatewayPersistedRuntimePluginSelections(config);
+    return config;
+  };
+  // Keep deferred config acquisition inside the refresh owner, and bind its locked-session
+  // facts to the same config snapshot. Direct callers retain the existing concrete-config API.
+  const getConfig = params.getConfig;
+  const runtimeConfig = getConfig
+    ? async () => readRuntimeConfig(await getConfig())
+    : readRuntimeConfig(params.cfg);
+  await refreshPreparedModelRuntimeSnapshots(runtimeConfig, {
     gatewayLifecycle: true,
     catalogMode: "static",
     allowGatewaySubagentBinding: true,
+    get additionalRuntimePluginSelectionsByAgentId() {
+      return persistedSelections;
+    },
     ...(params.isCurrent ? { isPublicationCurrent: params.isCurrent } : {}),
     ...(params.pluginMetadataSnapshot
       ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }

@@ -7,6 +7,7 @@ import { asFiniteNumber } from "@openclaw/normalization-core/number-coercion";
 import { note } from "../../packages/terminal-core/src/note.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
+import { prepareSqliteReadOnlyLocationSync } from "../infra/sqlite-readonly-location.js";
 import { listOpenClawRegisteredAgentDatabases } from "../state/openclaw-agent-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { formatBytes } from "./doctor-disk-space.js";
@@ -37,8 +38,10 @@ function readSqliteBloatStats(pathname: string): SqliteBloatStats | null {
     return null;
   }
   let db: DatabaseSync | undefined;
+  let prepared: ReturnType<typeof prepareSqliteReadOnlyLocationSync> | undefined;
   try {
-    db = openNodeSqliteDatabase(pathname, { readOnly: true });
+    prepared = prepareSqliteReadOnlyLocationSync(pathname);
+    db = openNodeSqliteDatabase(prepared.location, { readOnly: true });
     const pageSize = readPragmaNumber(db, "page_size") ?? 4096;
     const freelistCount = readPragmaNumber(db, "freelist_count") ?? 0;
     const autoVacuum = readPragmaNumber(db, "auto_vacuum") ?? 0;
@@ -50,7 +53,11 @@ function readSqliteBloatStats(pathname: string): SqliteBloatStats | null {
   } catch {
     return null;
   } finally {
-    db?.close();
+    try {
+      db?.close();
+    } finally {
+      prepared?.cleanup();
+    }
   }
 }
 

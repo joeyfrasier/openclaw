@@ -129,6 +129,8 @@ export function createChannelProgressDraftCompositor(params: {
   // place instead of appending one line per growing prefix.
   let lastIdLessCommentaryId: string | undefined;
   let lastIdLessCommentaryBare = "";
+  const commentaryLineIdByBareText = new Map<string, string>();
+  const commentaryLineIdByItemId = new Map<string, string>();
   // Model preambles and narration share the status slot while tool lines keep
   // accumulating underneath for turns where neither source is available.
   let preambleText = "";
@@ -218,6 +220,8 @@ export function createChannelProgressDraftCompositor(params: {
     lastReasoningLine = undefined;
     lastIdLessCommentaryId = undefined;
     lastIdLessCommentaryBare = "";
+    commentaryLineIdByBareText.clear();
+    commentaryLineIdByItemId.clear();
     preambleText = "";
     preambleItemId = undefined;
     preambleAt = undefined;
@@ -327,8 +331,20 @@ export function createChannelProgressDraftCompositor(params: {
     normalized: string;
     bareNormalized: string;
   }): string => {
+    // The same note is reported with and without its item id. Resolve text
+    // first so either arrival order keeps one line, then retain the adopted
+    // identity as cumulative snapshots extend that note.
+    const knownLineId = commentary.bareNormalized
+      ? commentaryLineIdByBareText.get(commentary.bareNormalized)
+      : undefined;
+    if (knownLineId) {
+      return knownLineId;
+    }
     if (commentary.itemId) {
-      return `commentary:${commentary.itemId}`;
+      const adoptedLineId = commentaryLineIdByItemId.get(commentary.itemId);
+      if (adoptedLineId) {
+        return adoptedLineId;
+      }
     }
     if (!commentary.normalized) {
       // Sanitized to nothing (directive-only / NO_REPLY): no line to address, so
@@ -338,9 +354,14 @@ export function createChannelProgressDraftCompositor(params: {
     const continuesOpenLine =
       Boolean(lastIdLessCommentaryBare) &&
       (commentary.bareNormalized.startsWith(lastIdLessCommentaryBare) ||
-        lastIdLessCommentaryBare.startsWith(commentary.bareNormalized));
+        lastIdLessCommentaryBare.startsWith(commentary.bareNormalized) ||
+        commentary.bareNormalized.endsWith(lastIdLessCommentaryBare) ||
+        lastIdLessCommentaryBare.endsWith(commentary.bareNormalized));
     if (continuesOpenLine && lastIdLessCommentaryId) {
       return lastIdLessCommentaryId;
+    }
+    if (commentary.itemId) {
+      return `commentary:${commentary.itemId}`;
     }
     return `commentary:${commentary.normalized}`;
   };
@@ -724,6 +745,12 @@ export function createChannelProgressDraftCompositor(params: {
       if (!itemId) {
         lastIdLessCommentaryId = lineId;
         lastIdLessCommentaryBare = bareNormalized;
+      }
+      if (bareNormalized) {
+        commentaryLineIdByBareText.set(bareNormalized, lineId);
+      }
+      if (itemId) {
+        commentaryLineIdByItemId.set(itemId, lineId);
       }
       return await startAndRender();
     },

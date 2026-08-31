@@ -33,7 +33,11 @@ import {
 } from "../run-diagnostics.js";
 import type { CronDeliveryTrace, CronRunTelemetry } from "../types.js";
 import { resolveCronChannelOutputPolicy } from "./channel-output-policy.js";
-import { resolveCronPayloadOutcome } from "./helpers.js";
+import { pickSummaryFromOutput, resolveCronPayloadOutcome } from "./helpers.js";
+import {
+  MORNING_BRIEF_CRON_JOB_ID,
+  runMorningBriefContentGate,
+} from "./morning-brief-content-gate.js";
 import { buildCronDeliveryTrace, loadCronDeliveryRuntime } from "./run-delivery-trace.js";
 import type { PreparedCronRunContext } from "./run-prepare.js";
 import {
@@ -395,6 +399,65 @@ export async function finalizeCronRun(params: {
       embeddedRunError = pendingPresentationWarningError;
     }
   };
+
+  // The morning brief has a fixed, team-visible Slack destination. Its draft
+  // gate is a server-side delivery preflight, not a model tool obligation:
+  // isolated cron sessions may legitimately omit exec, and a persisted
+  // toolsAllow entry is not proof that the effective runtime exposed it.
+  if (
+    prepared.input.job.id === MORNING_BRIEF_CRON_JOB_ID &&
+    prepared.deliveryRequested &&
+    !hasFatalErrorPayload
+  ) {
+    if (deliveryPayloadHasStructuredContent || finalRunResult.didSendViaMessagingTool) {
+      const error =
+        "morning brief content gate blocked delivery: only the gated draft may reach the Slack destination";
+      return prepared.withRunSession({
+        status: "error",
+        error,
+        summary: error,
+        outputText: error,
+        delivered: false,
+        deliveryAttempted: false,
+        diagnostics: mergeCronRunDiagnostics(
+          runDiagnostics,
+          createCronRunDiagnosticsFromError("delivery", error, {
+            toolName: "morning-brief-content-gate",
+          }),
+        ),
+        ...telemetry,
+      });
+    }
+    const gate = await runMorningBriefContentGate({
+      signal: prepared.input.abortSignal ?? prepared.input.signal,
+      minimumDraftMtimeMs: execution.runStartedAt,
+    });
+    if (!gate.ok) {
+      const error = `morning brief content gate failed at ${gate.stage} (${gate.reason}); draft retained at ${gate.draftPath}`;
+      return prepared.withRunSession({
+        status: "error",
+        error,
+        summary: error,
+        outputText: error,
+        delivered: false,
+        deliveryAttempted: false,
+        diagnostics: mergeCronRunDiagnostics(
+          runDiagnostics,
+          createCronRunDiagnosticsFromError("delivery", error, {
+            toolName: "morning-brief-content-gate",
+          }),
+        ),
+        ...telemetry,
+      });
+    }
+    // Replace model-provided delivery text with the exact scrubbed bytes that
+    // passed the gate. This prevents an ungated assistant reply from reaching
+    // Slack even when the model returned a different final message.
+    deliveryPayloads = [{ text: gate.text }];
+    synthesizedText = gate.text;
+    outputText = gate.text;
+    summary = pickSummaryFromOutput(gate.text) ?? gate.text;
+  }
 
   const acceptedSessionSpawn = hasAcceptedSessionSpawn(finalRunResult.acceptedSessionSpawns);
   const heartbeatOnlyResponse =

@@ -1,15 +1,13 @@
 /** Public cron store load/save API backed entirely by shared SQLite state. */
-import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { expandHomePrefix } from "../infra/home-dir.js";
 import { pruneMapToMaxSize } from "../infra/map-size.js";
-import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
+import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
 import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
 } from "../state/openclaw-state-db.js";
-import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { resolveConfigDir } from "../utils.js";
 import { readCronStoreStatePath } from "./store/config-state.js";
 import { cronStoreKey } from "./store/key.js";
@@ -186,27 +184,25 @@ export async function loadCronJobsStoreWithConfigJobsReadOnly(
   storePath: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<LoadedCronStore> {
-  const statePath = resolveOpenClawStateSqlitePath(env);
-  if (!fs.existsSync(statePath)) {
-    return emptyLoadedCronStore();
-  }
   const resolvedStorePath = path.resolve(storePath);
   const storeKey = cronStoreKey(resolvedStorePath);
-  const db = openNodeSqliteDatabase(statePath, { readOnly: true });
-  try {
-    if (!tableExists(db, "cron_jobs")) {
-      return emptyLoadedCronStore();
-    }
-    const rows = loadCronRows(db, storeKey);
-    if (rows.length > 0) {
-      const loaded = loadedCronStoreFromRows(rows);
-      loadCronRuntimeAuthorities({ db, storeKey, jobs: loaded.store.jobs });
-      return loaded;
-    }
-    return emptyLoadedCronStore();
-  } finally {
-    db.close();
-  }
+  return (
+    withExistingOpenClawStateDatabaseReadOnly(
+      ({ db }) => {
+        if (!tableExists(db, "cron_jobs")) {
+          return emptyLoadedCronStore();
+        }
+        const rows = loadCronRows(db, storeKey);
+        if (rows.length > 0) {
+          const loaded = loadedCronStoreFromRows(rows);
+          loadCronRuntimeAuthorities({ db, storeKey, jobs: loaded.store.jobs });
+          return loaded;
+        }
+        return emptyLoadedCronStore();
+      },
+      { env },
+    ) ?? emptyLoadedCronStore()
+  );
 }
 
 /** Loads only the persisted cron job store payload. */

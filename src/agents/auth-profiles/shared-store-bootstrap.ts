@@ -4,6 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { hasErrnoCode } from "../../infra/errno.js";
 import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import { openNodeSqliteDatabase } from "../../infra/node-sqlite.js";
+import { withArtifactPreservingSqliteReadLocationSync } from "../../infra/sqlite-readonly-operations.js";
 import { writeConfigMachineState } from "../../state/config-machine-state.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
 import { withExistingOpenClawStateDatabaseReadOnly } from "../../state/openclaw-state-db-readonly.js";
@@ -109,19 +110,21 @@ export function inspectSharedAuthLegacyRowsReadOnly(sourcePath: string): SharedA
   if (inspectSharedAuthLegacySourceFile(sourcePath).status === "missing") {
     return { store: null, state: null };
   }
-  let database: DatabaseSync;
-  try {
-    database = openNodeSqliteDatabase(sourcePath, { readOnly: true });
-  } catch (error) {
-    throw new SharedAuthStoreSourceInspectionError(sourcePath, "open", error);
-  }
-  try {
-    return readSharedAuthLegacyRowsFromDatabase(database);
-  } catch (error) {
-    throw new SharedAuthStoreSourceInspectionError(sourcePath, "read", error);
-  } finally {
-    database.close();
-  }
+  return withArtifactPreservingSqliteReadLocationSync(sourcePath, (location) => {
+    let database: DatabaseSync;
+    try {
+      database = openNodeSqliteDatabase(location, { readOnly: true });
+    } catch (error) {
+      throw new SharedAuthStoreSourceInspectionError(sourcePath, "open", error);
+    }
+    try {
+      return readSharedAuthLegacyRowsFromDatabase(database);
+    } catch (error) {
+      throw new SharedAuthStoreSourceInspectionError(sourcePath, "read", error);
+    } finally {
+      database.close();
+    }
+  });
 }
 
 export function hasPendingSharedAuthCleanup(env: NodeJS.ProcessEnv, sourcePath: string): boolean {

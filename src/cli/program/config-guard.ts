@@ -296,7 +296,8 @@ export async function ensureConfigReady(
     ? ({ observe: false, pluginValidation: "core-only" } as const)
     : commandName === "logs"
       ? ({ observe: false, pluginValidation: "core-only" } as const)
-      : commandName === "status" ||
+      : commandName === "config" ||
+          commandName === "status" ||
           (commandName === "gateway" && subcommandName === "call") ||
           isRestartController
         ? ({ observe: false } as const)

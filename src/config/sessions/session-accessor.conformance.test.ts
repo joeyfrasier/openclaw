@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readPersistedAuthProfileStateRaw,
@@ -31,6 +32,7 @@ import {
   onSessionIdentityMutation,
   patchSessionEntryCore,
   publishTranscriptUpdate,
+  readPersistedLockedRuntimeSelectionsReadOnly,
   readSessionUpdatedAtCore,
   replaceSessionEntry,
   resolveSessionTranscriptRuntimeTarget,
@@ -51,6 +53,7 @@ import {
   branchCompactionCheckpointSession,
   restoreCompactionCheckpointSession,
 } from "./session-accessor.sqlite-checkpoint.js";
+import { deleteSessionEntryRows } from "./session-accessor.sqlite-entry-store.js";
 import {
   listSessionChildEntriesReadOnly,
   listSessionEntryRows,
@@ -1181,6 +1184,239 @@ describe("sqlite session normalization", () => {
     closeOpenClawAgentDatabasesForTest();
     closeOpenClawStateDatabaseForTest();
     fs.rmSync(paths.tempDir, { recursive: true, force: true });
+  });
+
+  it("reads only complete locked current-session runtime selections", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    await upsertSessionEntryCore(
+      { ...baseScope, sessionKey: "agent:main:locked-codex" },
+      {
+        agentHarnessId: "codex",
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        modelSelectionLocked: true,
+        sessionId: "locked-codex-session",
+        updatedAt: 10,
+      },
+    );
+    await upsertSessionEntryCore(
+      { ...baseScope, sessionKey: "agent:main:unlocked-other" },
+      {
+        agentHarnessId: "other",
+        model: "other-model",
+        modelProvider: "other-provider",
+        sessionId: "unlocked-other-session",
+        updatedAt: 20,
+      },
+    );
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(baseScope)).toEqual({
+      status: "complete",
+      selections: [
+        {
+          modelId: "gpt-5.5",
+          provider: "openai",
+          runtime: "codex",
+          sessionKey: "agent:main:locked-codex",
+        },
+      ],
+    });
+  });
+
+  it("treats a missing database as a complete empty selection set", () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+
+    expect(
+      readPersistedLockedRuntimeSelectionsReadOnly({
+        agentId: "main",
+        env,
+        storePath: paths.sqlitePath,
+      }),
+    ).toEqual({ status: "complete", selections: [] });
+  });
+
+  it("blocks selection publication when an existing database has no schema", () => {
+    const database = new DatabaseSync(paths.sqlitePath);
+    database.close();
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+
+    expect(
+      readPersistedLockedRuntimeSelectionsReadOnly({
+        agentId: "main",
+        env,
+        storePath: paths.sqlitePath,
+      }),
+    ).toEqual({ status: "blocked", reason: "schema-missing", selections: [] });
+  });
+
+  it("blocks selection publication when the canonical session table is missing", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const scope = {
+      agentId: "main",
+      env,
+      sessionKey: "agent:main:table-missing",
+      storePath: paths.sqlitePath,
+    };
+    await upsertSessionEntryCore(scope, {
+      sessionId: "table-missing-session",
+      updatedAt: 10,
+    });
+    const database = openOpenClawAgentDatabase({ agentId: "main", env, path: paths.sqlitePath });
+    database.db.exec("DROP TABLE session_nodes");
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(scope)).toEqual({
+      status: "blocked",
+      reason: "table-missing",
+      selections: [],
+    });
+  });
+
+  it("blocks every selection when a locked current-session runtime row is malformed", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const scope = {
+      agentId: "main",
+      env,
+      sessionKey: "agent:main:malformed-codex",
+      storePath: paths.sqlitePath,
+    };
+    await upsertSessionEntryCore(scope, {
+      agentHarnessId: "codex",
+      model: "gpt-5.5",
+      modelProvider: "openai",
+      modelSelectionLocked: true,
+      sessionId: "malformed-codex-session",
+      updatedAt: 10,
+    });
+    const database = openOpenClawAgentDatabase({ agentId: "main", env, path: paths.sqlitePath });
+    database.db
+      .prepare("UPDATE session_nodes SET entry_json = ? WHERE session_key = ?")
+      .run("{", scope.sessionKey);
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(scope)).toEqual({
+      status: "blocked",
+      reason: "invalid-entry",
+      selections: [],
+    });
+  });
+
+  it("skips exact transcript-retaining tombstones without hiding a valid locked runtime", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    await upsertSessionEntryCore(
+      { ...baseScope, sessionKey: "agent:main:locked-beside-tombstone" },
+      {
+        agentHarnessId: "codex",
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        modelSelectionLocked: true,
+        sessionId: "locked-beside-tombstone-session",
+        updatedAt: 20,
+      },
+    );
+    await upsertSessionEntryCore(
+      { ...baseScope, sessionKey: "agent:main:retained-tombstone" },
+      { sessionId: "retained-tombstone-session", updatedAt: 10 },
+    );
+    const database = openOpenClawAgentDatabase({ agentId: "main", env, path: paths.sqlitePath });
+    deleteSessionEntryRows(database, "agent:main:retained-tombstone");
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(baseScope)).toEqual({
+      status: "complete",
+      selections: [
+        {
+          modelId: "gpt-5.5",
+          provider: "openai",
+          runtime: "codex",
+          sessionKey: "agent:main:locked-beside-tombstone",
+        },
+      ],
+    });
+  });
+
+  it("returns no partial selections when the locked runtime row bound is exceeded", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    for (const index of [1, 2]) {
+      await upsertSessionEntryCore(
+        { ...baseScope, sessionKey: `agent:main:bounded-${index}` },
+        {
+          agentHarnessId: `runtime-${index}`,
+          model: `model-${index}`,
+          modelProvider: `provider-${index}`,
+          modelSelectionLocked: true,
+          sessionId: `bounded-session-${index}`,
+          updatedAt: index,
+        },
+      );
+    }
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(baseScope, { maxRows: 1 })).toEqual({
+      status: "blocked",
+      reason: "row-limit",
+      selections: [],
+    });
+  });
+
+  it("does not count ordinary unlocked harness rows against the locked runtime bound", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    for (const index of [1, 2]) {
+      await upsertSessionEntryCore(
+        { ...baseScope, sessionKey: `agent:main:unlocked-bounded-${index}` },
+        {
+          agentHarnessId: `runtime-${index}`,
+          model: `model-${index}`,
+          modelProvider: `provider-${index}`,
+          sessionId: `unlocked-bounded-session-${index}`,
+          updatedAt: index,
+        },
+      );
+    }
+    await upsertSessionEntryCore(
+      { ...baseScope, sessionKey: "agent:main:locked-with-unlocked-neighbors" },
+      {
+        agentHarnessId: "codex",
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        modelSelectionLocked: true,
+        sessionId: "locked-with-unlocked-neighbors-session",
+        updatedAt: 3,
+      },
+    );
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(baseScope, { maxRows: 1 })).toEqual({
+      status: "complete",
+      selections: [
+        {
+          modelId: "gpt-5.5",
+          provider: "openai",
+          runtime: "codex",
+          sessionKey: "agent:main:locked-with-unlocked-neighbors",
+        },
+      ],
+    });
+  });
+
+  it("blocks an incomplete inspected-row scan even when every inspected row is unlocked", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    for (const index of [1, 2]) {
+      await upsertSessionEntryCore(
+        { ...baseScope, sessionKey: `agent:main:scan-bounded-${index}` },
+        {
+          agentHarnessId: `runtime-${index}`,
+          model: `model-${index}`,
+          modelProvider: `provider-${index}`,
+          sessionId: `scan-bounded-session-${index}`,
+          updatedAt: index,
+        },
+      );
+    }
+
+    expect(
+      readPersistedLockedRuntimeSelectionsReadOnly(baseScope, { maxInspectedRows: 1 }),
+    ).toEqual({ status: "blocked", reason: "scan-limit", selections: [] });
   });
 
   it("maintains normalized session node and window rows", async () => {

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   invalidate: vi.fn(),
   read: vi.fn(),
   readStartup: vi.fn(),
+  readPersistedRuntimeSelections: vi.fn(),
   refreshPreparedModels: vi.fn(),
   refresh: vi.fn(),
   registerAuthListener: vi.fn(),
@@ -39,6 +40,10 @@ vi.mock("../skills/runtime/refresh.js", async (importOriginal) => ({
   registerSkillsChangeListener: mocks.registerSkillsListener,
 }));
 
+vi.mock("./server-startup-model-runtime-selections.js", () => ({
+  readGatewayPersistedRuntimePluginSelections: mocks.readPersistedRuntimeSelections,
+}));
+
 const { createGatewayChatMetadataLifecycle } = await import("./server-chat-metadata-lifecycle.js");
 const { ChatMetadataSnapshotUnavailableError } =
   await import("./server-methods/chat-metadata-runtime.js");
@@ -58,6 +63,9 @@ beforeEach(() => {
     refresh: mocks.refresh,
   });
   mocks.refresh.mockResolvedValue(undefined);
+  mocks.readPersistedRuntimeSelections.mockReturnValue(
+    new Map([["main", [{ modelId: "gpt-5.5", provider: "openai", runtime: "codex" }]]]),
+  );
   mocks.registerAuthListener.mockReturnValue(mocks.unregisterAuthListener);
   mocks.registerModelListener.mockReturnValue(mocks.unregisterModelListener);
   mocks.registerSkillsListener.mockReturnValue(mocks.unregisterSkillsListener);
@@ -75,6 +83,23 @@ function createLifecycle(minimalTestGateway: boolean, warn = vi.fn()) {
 }
 
 describe("gateway chat metadata lifecycle", () => {
+  it("retains persisted runtime selections when a minimal Gateway publishes on demand", async () => {
+    await createLifecycle(true).lifecycle;
+    const createParams = mocks.createRuntime.mock.calls[0]?.[0] as
+      | { beforeRefresh?: () => Promise<void> }
+      | undefined;
+
+    await createParams?.beforeRefresh?.();
+
+    expect(mocks.refreshPreparedModels).toHaveBeenCalledWith(config, {
+      additionalRuntimePluginSelectionsByAgentId:
+        mocks.readPersistedRuntimeSelections.mock.results[0]?.value,
+      allowGatewaySubagentBinding: true,
+      catalogMode: "static",
+      gatewayLifecycle: true,
+    });
+  });
+
   it("broadcasts settled metadata through the production lifecycle without a failure feedback loop", async () => {
     const actual = await vi.importActual<
       typeof import("./server-methods/chat-metadata-runtime.js")

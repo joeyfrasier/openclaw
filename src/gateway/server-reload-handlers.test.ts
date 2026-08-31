@@ -304,8 +304,18 @@ const hoisted = vi.hoisted(() => ({
   rejectPendingPreparedModelRuntimeReplacement: vi.fn(
     (_gateId: symbol | undefined, _error: unknown) => {},
   ),
+  persistedRuntimePluginSelections: new Map([
+    ["main", [{ modelId: "gpt-5.5", provider: "openai", runtime: "codex" }]],
+  ]),
+  readPersistedRuntimePluginSelections: vi.fn((_config: OpenClawConfig) => {}),
   refreshPreparedModelRuntimeSnapshots: vi.fn(
-    async (_cfg: OpenClawConfig, _options?: { catalogMode?: "live" | "static" }) => {},
+    async (
+      _cfg: OpenClawConfig,
+      _options?: {
+        additionalRuntimePluginSelectionsByAgentId?: ReadonlyMap<string, readonly unknown[]>;
+        catalogMode?: "live" | "static";
+      },
+    ) => {},
   ),
   refreshContextWindowCache: vi.fn(async (_cfg: OpenClawConfig) => {}),
   clearCurrentProviderAuthState: vi.fn(() => {}),
@@ -418,10 +428,20 @@ vi.mock("../agents/prepared-model-runtime.js", () => ({
     hoisted.rejectPendingPreparedModelRuntimeReplacement(gateId, error),
   refreshPreparedModelRuntimeSnapshots: (
     cfg: OpenClawConfig,
-    options?: { catalogMode?: "live" | "static" },
+    options?: {
+      additionalRuntimePluginSelectionsByAgentId?: ReadonlyMap<string, readonly unknown[]>;
+      catalogMode?: "live" | "static";
+    },
   ) => {
     hoisted.reloadEvents.push("refresh-prepared-model-runtime");
     return hoisted.refreshPreparedModelRuntimeSnapshots(cfg, options);
+  },
+}));
+
+vi.mock("./server-startup-model-runtime-selections.js", () => ({
+  readGatewayPersistedRuntimePluginSelections: (config: OpenClawConfig) => {
+    hoisted.readPersistedRuntimePluginSelections(config);
+    return hoisted.persistedRuntimePluginSelections;
   },
 }));
 
@@ -973,6 +993,7 @@ afterEach(() => {
   hoisted.markPreparedModelRuntimeSnapshotsStale.mockClear();
   hoisted.rejectPendingPreparedModelRuntimeReplacement.mockClear();
   hoisted.refreshPreparedModelRuntimeSnapshots.mockClear();
+  hoisted.readPersistedRuntimePluginSelections.mockClear();
   hoisted.refreshContextWindowCache.mockClear();
   hoisted.clearCurrentProviderAuthState.mockClear();
   hoisted.warmCurrentProviderAuthStateOffMainThread.mockClear();
@@ -1642,6 +1663,7 @@ describe("managed reload transaction ownership", () => {
         catalogMode: "static",
         allowGatewaySubagentBinding: true,
         pluginMetadataSnapshot,
+        additionalRuntimePluginSelectionsByAgentId: hoisted.persistedRuntimePluginSelections,
       },
     );
   });
@@ -1671,11 +1693,13 @@ describe("managed reload transaction ownership", () => {
     const [rebuiltWith, options] = hoisted.refreshPreparedModelRuntimeSnapshots.mock.calls[0] ?? [];
     expect(rebuiltWith).toBe(resolved);
     expect(rebuiltWith).not.toBe(result.configA);
+    expect(hoisted.readPersistedRuntimePluginSelections).toHaveBeenLastCalledWith(resolved);
     expect(options).toEqual({
       gatewayLifecycle: true,
       catalogMode: "static",
       allowGatewaySubagentBinding: true,
       pluginMetadataSnapshot,
+      additionalRuntimePluginSelectionsByAgentId: hoisted.persistedRuntimePluginSelections,
     });
   });
 
@@ -2091,6 +2115,7 @@ describe("gateway hot reload model state", () => {
       allowGatewaySubagentBinding: true,
       catalogMode: "static",
       agentIds: new Set(["alpha"]),
+      additionalRuntimePluginSelectionsByAgentId: hoisted.persistedRuntimePluginSelections,
     });
   });
 
@@ -2119,6 +2144,7 @@ describe("gateway hot reload model state", () => {
 
     expect(hoisted.markPreparedModelRuntimeSnapshotsStale).toHaveBeenCalledOnce();
     expect(hoisted.refreshPreparedModelRuntimeSnapshots).toHaveBeenCalledWith(nextConfig, {
+      additionalRuntimePluginSelectionsByAgentId: hoisted.persistedRuntimePluginSelections,
       allowGatewaySubagentBinding: true,
       catalogMode: "static",
     });
@@ -2509,6 +2535,7 @@ describe("gateway hot reload model state", () => {
       { waitForReplacement: true },
     );
     expect(hoisted.refreshPreparedModelRuntimeSnapshots).toHaveBeenCalledWith(nextConfig, {
+      additionalRuntimePluginSelectionsByAgentId: hoisted.persistedRuntimePluginSelections,
       allowGatewaySubagentBinding: true,
       catalogMode: "static",
     });

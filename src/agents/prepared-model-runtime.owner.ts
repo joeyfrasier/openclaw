@@ -391,6 +391,10 @@ export function listConfiguredOwnerInputs(
   config: OpenClawConfig,
   defaultWorkspaceDir?: string,
   allowGatewaySubagentBinding?: boolean,
+  additionalRuntimePluginSelectionsByAgentId?: ReadonlyMap<
+    string,
+    readonly NonNullable<PreparedModelRuntimeInput["runtimePluginSelections"]>[number][]
+  >,
 ): PreparedModelRuntimeInput[] {
   const compatibilityAgentId = tryResolveLegacyCompatibilityAgentId(config);
   const inheritedAuthDir = resolveLegacyInheritedAuthDir(config);
@@ -404,7 +408,10 @@ export function listConfiguredOwnerInputs(
       workspaceDir: preserveWorkspaceDirOnRefresh
         ? defaultWorkspaceDir
         : resolveAgentWorkspaceDir(config, agentId),
-      runtimePluginSelections: resolveConfiguredRuntimePluginSelections(config, agentId),
+      runtimePluginSelections: mergeRuntimePluginSelections(
+        resolveConfiguredRuntimePluginSelections(config, agentId),
+        additionalRuntimePluginSelectionsByAgentId?.get(agentId),
+      ),
     };
     if (allowGatewaySubagentBinding === true) {
       input.allowGatewaySubagentBinding = true;
@@ -414,6 +421,17 @@ export function listConfiguredOwnerInputs(
     }
     return input;
   });
+}
+
+function mergeRuntimePluginSelections(
+  configured: PreparedModelRuntimeInput["runtimePluginSelections"],
+  additional: PreparedModelRuntimeInput["runtimePluginSelections"],
+): PreparedModelRuntimeInput["runtimePluginSelections"] {
+  const merged = new Map<string, NonNullable<typeof configured>[number]>();
+  for (const selection of [...(configured ?? []), ...(additional ?? [])]) {
+    merged.set(JSON.stringify(selection), selection);
+  }
+  return [...merged.values()];
 }
 
 function resolveConfiguredRuntimePluginSelections(

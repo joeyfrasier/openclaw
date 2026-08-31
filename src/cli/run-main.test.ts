@@ -11,6 +11,7 @@ import {
   shouldHandleBareRoot,
   shouldEnsureCliPath,
   shouldStartProxyForCli,
+  shouldUseArtifactPreservingCliReadScope,
   shouldUseRootHelpFastPath,
   shouldUseSetupOnboardConfigureHelpFastPath,
 } from "./run-main-policy.js";
@@ -278,7 +279,58 @@ describe("shouldStartProxyForCli", () => {
     expect(
       shouldStartProxyForCli(["node", "openclaw", "doctor", "--state-sqlite=compact", "--json"]),
     ).toBe(false);
-    expect(shouldStartProxyForCli(["node", "openclaw", "doctor", "--lint"])).toBe(true);
+    expect(shouldStartProxyForCli(["node", "openclaw", "doctor", "--lint"])).toBe(false);
+    expect(
+      shouldStartProxyForCli([
+        "node",
+        "openclaw",
+        "config",
+        "patch",
+        "--file",
+        "patch.json5",
+        "--dry-run",
+      ]),
+    ).toBe(false);
+    expect(shouldStartProxyForCli(["node", "openclaw", "doctor"])).toBe(true);
+  });
+});
+
+describe("shouldUseArtifactPreservingCliReadScope", () => {
+  it("covers doctor lint and every config dry-run mutation command", () => {
+    expect(shouldUseArtifactPreservingCliReadScope(["node", "openclaw", "doctor", "--lint"])).toBe(
+      true,
+    );
+    for (const argv of [
+      ["node", "openclaw", "config", "set", "gateway.port", "19000", "--dry-run"],
+      ["node", "openclaw", "config", "patch", "--file", "patch.json5", "--dry-run"],
+      ["node", "openclaw", "config", "unset", "gateway.port", "--dry-run"],
+    ]) {
+      expect(shouldUseArtifactPreservingCliReadScope(argv)).toBe(true);
+    }
+  });
+
+  it("does not broaden preservation to real config writes or post-terminator values", () => {
+    expect(
+      shouldUseArtifactPreservingCliReadScope([
+        "node",
+        "openclaw",
+        "config",
+        "set",
+        "gateway.port",
+        "19000",
+      ]),
+    ).toBe(false);
+    expect(
+      shouldUseArtifactPreservingCliReadScope([
+        "node",
+        "openclaw",
+        "config",
+        "set",
+        "example.value",
+        "--",
+        "--dry-run",
+      ]),
+    ).toBe(false);
   });
 });
 

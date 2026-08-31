@@ -114,6 +114,42 @@ async function sendSmsMedia(params: SendSmsMediaParams) {
 }
 
 describe("sendSmsTextChunks", () => {
+  it.each([
+    { kind: "text", allowTo: ["+15551234567"] },
+    { kind: "text", allowTo: [] },
+    { kind: "media", allowTo: ["+15551234567"] },
+    { kind: "media", allowTo: [] },
+  ])(
+    "blocks direct $kind delivery outside allowTo=$allowTo before dispatch",
+    async ({ kind, allowTo }) => {
+      const account = { ...createAccount(1500), allowTo };
+      const onPlatformSendDispatch = vi.fn(async () => {});
+      const send =
+        kind === "text"
+          ? sendSmsTextChunks({
+              account,
+              to: "+15559876543",
+              text: "private fixture",
+              onPlatformSendDispatch,
+            })
+          : sendPreparedSmsMediaAttempt({
+              account,
+              to: "+15559876543",
+              attempt: {
+                hostedMediaUrl: "https://gateway.example.com/private-fixture",
+                cleanupHostedMedia: hostedMediaMocks.cleanup,
+                remainingChunks: [],
+              },
+              onPlatformSendDispatch,
+            });
+
+      await expect(send).rejects.toThrow(/not allowed by channels.sms.allowTo/);
+      expect(sendSmsViaTwilio).not.toHaveBeenCalled();
+      expect(onPlatformSendDispatch).not.toHaveBeenCalled();
+      expect(recordInitialSmsDeliveryResult).not.toHaveBeenCalled();
+    },
+  );
+
   it("preserves ambiguous Twilio failures after the dispatch boundary", async () => {
     const failure = new Error("Twilio response was lost");
     const onPlatformSendDispatch = vi.fn(async () => {});

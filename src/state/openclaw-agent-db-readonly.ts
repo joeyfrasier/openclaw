@@ -2,6 +2,10 @@ import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { clearNodeSqliteKyselyCacheForDatabase } from "../infra/kysely-sync.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
+import {
+  isArtifactPreservingSqliteReadLocationsActive,
+  withArtifactPreservingSqliteReadLocationSync,
+} from "../infra/sqlite-readonly-operations.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import type {
   OpenClawAgentDatabase,
@@ -66,55 +70,56 @@ export function withOpenClawAgentDatabaseReadOnly<T>(
       ? { found: true, value: operation(database) }
       : { found: false, reason: "database-missing" };
   }
-  // Borrow only outside a transaction so readers see committed rows.
-  // The writer owns reused handles; this call closes only fresh connections.
-  const opened = behavior.allowExtension
-    ? undefined
-    : findOpenAgentDatabase({ ...options, agentId });
-  const reusable = opened && !opened.db.isTransaction ? opened : undefined;
-  if (!reusable && !fs.existsSync(pathname)) {
+  // Reusing a handle this process already holds is what keeps row loops cheap:
+  // opening and closing a connection per call made reads scale with row count.
+  // An in-flight transaction is skipped so callers never observe uncommitted
+  // rows that a fresh read-only connection could not have seen.
+  const opened =
+    behavior.allowExtension || isArtifactPreservingSqliteReadLocationsActive()
+      ? undefined
+      : findOpenAgentDatabase({ ...options, agentId });
+  if (opened && !opened.db.isTransaction) {
+    // A newer build can migrate this file while the handle stays open, so the
+    // forward-compatibility gate still runs before any reused read.
+    assertSupportedAgentSchemaVersion(opened.db, pathname);
+    assertCanonicalAgentPersistenceVersion(opened.db, pathname);
+    try {
+      return { found: true, value: operation(opened) };
+    } catch (error) {
+      if (isMissingTableError(error) && !behavior.throwOnMissingTable) {
+        return { found: false, reason: "table-missing" };
+      }
+      throw error;
+    }
+  }
+  if (!fs.existsSync(pathname)) {
     return { found: false, reason: "database-missing" };
   }
-  const database = reusable ?? {
-    agentId,
-    db: openNodeSqliteDatabase(pathname, {
+  return withArtifactPreservingSqliteReadLocationSync(pathname, (location) => {
+    const db = openNodeSqliteDatabase(location, {
       readOnly: true,
       ...(behavior.allowExtension ? { allowExtension: true } : {}),
-    }),
-    path: pathname,
-  };
-  const { db } = database;
-  try {
-    if (!reusable) {
+    });
+    try {
       db.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
-    }
-    // Share only this admission's fresh value; a later read must check again.
-    const userVersion = assertSupportedAgentSchemaVersion(db, pathname);
-    assertCanonicalAgentPersistenceVersion(db, pathname, userVersion);
-    if (!reusable) {
+      assertSupportedAgentSchemaVersion(db, pathname);
+      assertCanonicalAgentPersistenceVersion(db, pathname);
       const schemaMeta = readExistingAgentSchemaMeta(db);
       if (!schemaMeta) {
         return { found: false, reason: "schema-missing" };
       }
       assertExistingAgentSchemaOwner(schemaMeta, agentId, pathname);
-    }
-    try {
-      return { found: true, value: operation(database) };
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        (error as NodeJS.ErrnoException).code === "ERR_SQLITE_ERROR" &&
-        /\bno such table:/iu.test(error.message) &&
-        !behavior.throwOnMissingTable
-      ) {
-        return { found: false, reason: "table-missing" };
+      try {
+        return { found: true, value: operation({ agentId, db, path: pathname }) };
+      } catch (error) {
+        if (isMissingTableError(error) && !behavior.throwOnMissingTable) {
+          return { found: false, reason: "table-missing" };
+        }
+        throw error;
       }
-      throw error;
-    }
-  } finally {
-    if (!reusable) {
+    } finally {
       clearNodeSqliteKyselyCacheForDatabase(db);
       db.close();
     }
-  }
+  });
 }

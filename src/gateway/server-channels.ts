@@ -1428,7 +1428,10 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
           ? plugin.config.isEnabled(account, cfg)
           : isAccountEnabled(account);
         const described = plugin.config.describeAccount?.(account, cfg);
-        const configured = described?.configured ?? current.configured ?? true;
+        // The running account was built from the materialized secret snapshot. Re-resolving
+        // `describeAccount` from raw SecretRef-bearing config can only see an unresolved ref and
+        // must not overwrite the runtime's explicit configured truth.
+        const configured = current.configured ?? described?.configured ?? true;
         const state = resolveChannelAccountState({
           enabled,
           configured,

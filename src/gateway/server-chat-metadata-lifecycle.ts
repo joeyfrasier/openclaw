@@ -1,6 +1,7 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
+import { readGatewayPersistedRuntimePluginSelections } from "./server-startup-model-runtime-selections.js";
 import type { GatewayPostReadySidecarHandle } from "./server-startup-post-attach.js";
 
 type GatewayLogger = ReturnType<typeof createSubsystemLogger>;
@@ -28,10 +29,13 @@ export async function createGatewayChatMetadataLifecycle(params: {
           beforeRefresh: async () => {
             const { refreshPreparedModelRuntimeSnapshots } =
               await import("../agents/prepared-model-runtime.js");
-            await refreshPreparedModelRuntimeSnapshots(params.getConfig(), {
+            const config = params.getConfig();
+            await refreshPreparedModelRuntimeSnapshots(config, {
               gatewayLifecycle: true,
               catalogMode: "static",
               allowGatewaySubagentBinding: true,
+              additionalRuntimePluginSelectionsByAgentId:
+                readGatewayPersistedRuntimePluginSelections(config),
             });
           },
           refreshOnRead: true,

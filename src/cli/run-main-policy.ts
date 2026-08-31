@@ -13,7 +13,7 @@ import {
   type PluginManifestToolOwnerRecord,
 } from "../plugins/manifest-command-aliases.js";
 import { resolveCliArgvInvocation } from "./argv-invocation.js";
-import { isSimpleCommandHelpInvocation } from "./argv.js";
+import { hasFlag, isSimpleCommandHelpInvocation } from "./argv.js";
 import {
   resolveCliCommandPathPolicy,
   resolveCliNetworkProxyPolicy,
@@ -112,6 +112,16 @@ export function shouldHandleBareRoot(argv: string[]): boolean {
   return invocation.commandPath.length === 0 && !invocation.hasHelpOrVersion;
 }
 
+/** Commands whose inspection promise must extend through CLI startup discovery. */
+export function shouldUseArtifactPreservingCliReadScope(argv: string[]): boolean {
+  const policyArgv = rewriteUpdateFlagArgv(argv);
+  const invocation = resolveCliArgvInvocation(policyArgv);
+  if (invocation.primary === "doctor" && hasFlag(policyArgv, "--lint")) {
+    return true;
+  }
+  return invocation.primary === "config" && hasFlag(policyArgv, "--dry-run");
+}
+
 export function shouldStartProxyForCli(argv: string[]): boolean {
   const policyArgv = rewriteUpdateFlagArgv(argv);
   const invocation = resolveCliArgvInvocation(policyArgv);
@@ -120,6 +130,12 @@ export function shouldStartProxyForCli(argv: string[]): boolean {
     return false;
   }
   if (isBareParentDefaultHelpArgv(policyArgv)) {
+    return false;
+  }
+  // Artifact-preserving inspection commands do not need a network-capable
+  // process-global proxy, and starting it before JSON output is owned can emit
+  // unrelated diagnostics. Interactive and mutating commands keep normal policy.
+  if (shouldUseArtifactPreservingCliReadScope(policyArgv)) {
     return false;
   }
   return resolveCliNetworkProxyPolicy(policyArgv) === "default";

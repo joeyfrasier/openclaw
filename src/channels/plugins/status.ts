@@ -53,6 +53,7 @@ export async function buildChannelAccountSnapshotFromAccount<ResolvedAccount>(pa
     ? params.plugin.config.isEnabled(params.account, params.cfg)
     : (described?.enabled ?? snapshot.enabled ?? params.enabledFallback ?? true);
   const configured =
+    params.runtime?.configured ??
     described?.configured ??
     (params.plugin.config.isConfigured
       ? await params.plugin.config.isConfigured(params.account, params.cfg)
@@ -61,11 +62,15 @@ export async function buildChannelAccountSnapshotFromAccount<ResolvedAccount>(pa
     configured && params.plugin.config.isLinked
       ? await params.plugin.config.isLinked(params.account, params.cfg)
       : undefined;
+  // The status adapter owns any lifecycle fields it actually observed, while the
+  // live runtime supplies fields the adapter omitted. This keeps plugin-specific
+  // observations authoritative without losing the gateway's resolved running state.
+  const runtimeState = { ...params.runtime, ...snapshot };
   const state = resolveChannelAccountState({
     enabled,
     configured,
     linked: resolveChannelAccountLinked(linkState, described?.linked ?? snapshot.linked),
-    runtime: snapshot,
+    runtime: runtimeState,
     disabledReason: params.plugin.config.disabledReason?.(params.account, params.cfg),
     unconfiguredReason: params.plugin.config.unconfiguredReason?.(params.account, params.cfg),
     unlinkedReason: params.plugin.config.unlinkedReason?.(params.account, params.cfg),

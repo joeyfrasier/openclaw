@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { statSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -25,6 +26,15 @@ type OpenClawStateReadOnlyDatabase = {
 };
 
 type ReusedOpenClawStateReadOnlyDatabase<T> = { reused: false } | { reused: true; value: T };
+
+const artifactPreservingReadScope = new AsyncLocalStorage<boolean>();
+
+/** Force shared-state reads in an operation onto private SQLite snapshots. */
+export async function withArtifactPreservingOpenClawStateDatabaseReads<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  return await artifactPreservingReadScope.run(true, operation);
+}
 
 function resolveReadOnlyPath(options: OpenClawStateDatabaseOptions): string {
   return path.resolve(options.path ?? resolveOpenClawStateSqlitePath(options.env ?? process.env));
@@ -127,6 +137,9 @@ export function withExistingOpenClawStateDatabaseReadOnly<T>(
   operation: (database: OpenClawStateReadOnlyDatabase) => T,
   options: OpenClawStateDatabaseOptions = {},
 ): T | undefined {
+  if (artifactPreservingReadScope.getStore() === true) {
+    return withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(operation, options);
+  }
   const pathname = resolveReadOnlyPath(options);
   const reused = withOpenClawStateDatabaseReadOnlyIfOpen(operation, options, pathname);
   if (reused.reused) {
@@ -148,10 +161,10 @@ export function withExistingOpenClawStateDatabaseArtifactPreservingReadOnly<T>(
   options: OpenClawStateDatabaseOptions = {},
 ): T | undefined {
   const pathname = resolveReadOnlyPath(options);
-  const reused = withOpenClawStateDatabaseReadOnlyIfOpen(operation, options, pathname);
-  if (reused.reused) {
-    return reused.value;
-  }
+  // Artifact-preserving inspection must never inherit a source handle opened by
+  // an earlier startup phase. Even a read through that handle can advance WAL or
+  // SHM coordination state and defeats the caller's byte-preservation contract.
+  // Always snapshot the complete source family and open only the private copy.
   const existingPath = existingPathOrUndefined(pathname);
   if (existingPath === undefined) {
     return undefined;

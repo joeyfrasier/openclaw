@@ -17,11 +17,19 @@ import {
 } from "openclaw/plugin-sdk/text-chunking";
 import { assertSmsCredentialOwnerAvailable } from "./credential-availability.js";
 import { recordInitialSmsDeliveryResult } from "./delivery-observations.js";
+import { normalizeSmsPhoneNumber } from "./phone.js";
 import { getSmsRuntime } from "./runtime.js";
 import { sendSmsViaTwilio, TWILIO_MESSAGE_BODY_MAX_LENGTH } from "./twilio.js";
 import type { ResolvedSmsAccount, SmsSendResult } from "./types.js";
 
 const SMS_ASSISTANT_TRANSCRIPT_ROLE_PREFIX = "[assistant-authored transcript] ";
+
+export function assertSmsOutboundTargetAllowed(account: ResolvedSmsAccount, to: string): void {
+  if (account.allowTo && !account.allowTo.includes(normalizeSmsPhoneNumber(to))) {
+    throw new Error("SMS target is not allowed by channels.sms.allowTo.");
+  }
+}
+
 type SmsMessageKind = "text" | "media";
 type SmsDeliveryProgressResult = ChannelMessageSendResult & {
   channel: "sms";
@@ -139,6 +147,9 @@ async function sendSmsProviderMessage(params: {
   let platformDispatchStarted = false;
   let result: SmsSendResult;
   try {
+    // Pairing replies and inbound delivery also call this sender directly.
+    // Keep the outbound allowlist at the last shared boundary before Twilio.
+    assertSmsOutboundTargetAllowed(params.account, params.to);
     result = await sendSmsViaTwilio({
       account: params.account,
       to: params.to,

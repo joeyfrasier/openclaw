@@ -10,6 +10,7 @@ import {
 } from "openclaw/plugin-sdk/test-fixtures";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { withEnv, withEnvAsync } from "../test-utils/env.js";
+import { withArtifactPreservingPluginLoaderReads } from "./artifact-preserving-loader-scope.js";
 import {
   buildPluginLoaderAliasMap,
   createPluginLoaderModuleCacheKey,
@@ -2138,6 +2139,15 @@ describe("buildPluginLoaderAliasMap memoization", () => {
 });
 
 describe("buildPluginLoaderJitiOptions", () => {
+  it("disables the filesystem cache during artifact-preserving inspection", async () => {
+    const root = createTrustedOpenClawPackageFixture("2.0.0");
+    const options = await withArtifactPreservingPluginLoaderReads(async () =>
+      buildPluginLoaderJitiOptions({}, { modulePath: path.join(root, "dist", "plugins") }),
+    );
+
+    expect(options.fsCache).toBe(false);
+  });
+
   it("scopes the jiti cache to the durable user cache and OpenClaw install", () => {
     const root = createTrustedOpenClawPackageFixture("2.0.0");
     const tmpDir = path.join(root, "tmp");

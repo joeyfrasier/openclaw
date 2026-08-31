@@ -268,6 +268,15 @@ describe("ensureConfigReady", () => {
     expect(readConfigFileSnapshotMock).toHaveBeenCalledWith({ observe: false });
   });
 
+  it.each(["set", "patch", "unset"])(
+    "keeps config %s guard reads non-observing",
+    async (subcommand) => {
+      await runEnsureConfigReady(["config", subcommand]);
+
+      expect(readConfigFileSnapshotMock).toHaveBeenCalledWith({ observe: false });
+    },
+  );
+
   it("keeps logs config guard reads non-observing and independent of plugin state", async () => {
     await runEnsureConfigReady(["logs"]);
 

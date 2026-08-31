@@ -421,6 +421,7 @@ describe("runEmbeddedAgentViaCliBackendIfEligible execution", () => {
     const params = baseRunParams({
       sessionTarget,
       toolsAllow: ["memory_search", "memory_get", "notes_retrieve_context"],
+      disableMessageTool: true,
     });
 
     const result = await runEmbeddedAgentViaCliBackendIfEligible(params);
@@ -436,6 +437,7 @@ describe("runEmbeddedAgentViaCliBackendIfEligible execution", () => {
       timeoutMs: 30_000,
       runTimeoutOverrideMs: 30_000,
       disableCliLiveSession: true,
+      disableMessageTool: true,
       cleanupCliLiveSessionOnRunEnd: true,
       requireExplicitMessageTarget: true,
       cliToolAvailability: {

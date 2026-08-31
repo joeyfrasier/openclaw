@@ -12,6 +12,13 @@ import { z } from "zod";
 
 const SecretInputSchema = buildSecretInputSchema();
 
+const SmsExecApprovalConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    approvers: z.array(z.union([z.string(), z.number()])).optional(),
+  })
+  .strict();
+
 const SmsAccountConfigSchema = z
   .object({
     name: z.string().optional(),
@@ -28,6 +35,8 @@ const SmsAccountConfigSchema = z
     dangerouslyDisableSignatureValidation: z.boolean().optional(),
     dmPolicy: DmPolicySchema.optional().default("pairing"),
     allowFrom: AllowFromListSchema,
+    allowTo: AllowFromListSchema,
+    execApprovals: SmsExecApprovalConfigSchema.optional(),
     textChunkLimit: z.number().int().positive().optional(),
   })
   .strict();
@@ -90,9 +99,21 @@ export const SmsChannelConfigSchema = buildChannelConfigSchema(SmsConfigSchema, 
       help: "Allowed sender phone numbers in E.164 format, or * when dmPolicy is open.",
       presentation: "phone-number",
     },
+    allowTo: {
+      label: "SMS Allow To",
+      help: "Optional outbound E.164 allowlist. When present, every SMS and MMS destination must match it.",
+      presentation: "phone-number",
+    },
+    execApprovals: {
+      label: "SMS Exec Approvals",
+      help: "Owner-only allow-once and deny decisions. Requires signature validation, dmPolicy=allowlist, and matching allowFrom/allowTo/approvers entries.",
+    },
+    "execApprovals.approvers.*": { presentation: "phone-number" },
     "accounts.*.fromNumber": { presentation: "phone-number" },
     "accounts.*.defaultTo": { presentation: "phone-number" },
     "accounts.*.allowFrom.*": { presentation: "phone-number" },
+    "accounts.*.allowTo.*": { presentation: "phone-number" },
+    "accounts.*.execApprovals.approvers.*": { presentation: "phone-number" },
     textChunkLimit: {
       label: "SMS Text Chunk Limit",
       help: "Maximum characters per outbound SMS chunk before OpenClaw splits long replies.",

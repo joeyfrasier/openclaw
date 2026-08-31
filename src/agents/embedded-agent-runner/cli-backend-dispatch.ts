@@ -254,6 +254,7 @@ async function runEmbeddedAgentViaCliBackend(
       onPartialReply: params.onPartialReply,
       onExecutionPhase: params.onExecutionPhase,
       cliToolAvailability,
+      disableMessageTool: params.disableMessageTool,
       // One-shot helper run: fresh CLI process, no warm live session left
       // behind, and no implicit message sends without an explicit target.
       disableCliLiveSession: true,

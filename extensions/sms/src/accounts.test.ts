@@ -68,6 +68,29 @@ describe("SMS account config", () => {
     });
   });
 
+  it("normalizes owner-only outbound and exec approval allowlists", () => {
+    const account = resolveSmsAccount({
+      channels: {
+        sms: parseSmsConfig({
+          accountSid: "AC123",
+          authToken: "token",
+          fromNumber: "+15557654321",
+          allowTo: ["sms:+1 (555) 123-4567"],
+          execApprovals: {
+            enabled: true,
+            approvers: ["+1 (555) 123-4567"],
+          },
+        }),
+      },
+    });
+
+    expect(account.allowTo).toEqual(["+15551234567"]);
+    expect(account.execApprovals).toEqual({
+      enabled: true,
+      approvers: ["+15551234567"],
+    });
+  });
+
   it("reports an invalid public webhook URL without unconfiguring SMS credentials", () => {
     expect(
       inspectSmsAccount({

@@ -118,6 +118,13 @@ export type {
   TranscriptUpdatePayload,
 } from "./session-accessor.types.js";
 export { onSessionIdentityMutation } from "../../sessions/session-lifecycle-events.js";
+export {
+  MAX_PERSISTED_LOCKED_RUNTIME_SELECTION_ROWS,
+  MAX_PERSISTED_RUNTIME_SELECTION_INSPECTED_ROWS,
+  readPersistedLockedRuntimeSelectionsReadOnly,
+  type PersistedLockedRuntimeSelection,
+  type PersistedLockedRuntimeSelectionReadResult,
+} from "./session-accessor.sqlite-runtime-selections.js";
 export type {
   SessionIdentityMutation,
   SessionIdentityMutationListener,

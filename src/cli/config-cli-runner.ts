@@ -263,7 +263,13 @@ export async function runConfigOperations(params: {
   if (autoManagedTargets.length > 0) {
     throw new Error(formatAutoManagedMetaError(autoManagedTargets));
   }
-  const mutationStart = await loadValidConfigForWrite(runtime);
+  // Dry-run commands promise validation without persistent writes. Config-health
+  // observation is itself a write to the state database, and a newer CLI can
+  // advance that database schema while only inspecting an older live install.
+  // Keep observation enabled for real writes, but make dry-runs fully read-only.
+  const mutationStart = await loadValidConfigForWrite(runtime, {
+    observe: options.dryRun ? false : undefined,
+  });
   const { snapshot } = mutationStart;
   // Mutate resolved config so runtime defaults never leak into the authored file.
   const next = structuredClone(snapshot.resolved) as Record<string, unknown>;

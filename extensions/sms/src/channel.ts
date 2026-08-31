@@ -35,6 +35,7 @@ import {
   resolveDefaultSmsAccountId,
   resolveSmsAccount,
 } from "./accounts.js";
+import { smsApprovalCapability } from "./approval-bridge.js";
 import { SmsChannelConfigSchema } from "./config-schema.js";
 import { listRecentSmsDeliveryRecords } from "./delivery-observations.js";
 import { collectSmsStartupWarnings, startSmsGatewayAccount } from "./gateway.js";
@@ -46,6 +47,7 @@ import {
 } from "./phone.js";
 import { collectRuntimeConfigAssignments, secretTargetRegistryEntries } from "./secret-contract.js";
 import {
+  assertSmsOutboundTargetAllowed,
   createSmsMessageReceipt,
   prepareSmsMediaAttempt,
   sendPreparedSmsMediaAttempt,
@@ -84,6 +86,8 @@ const smsConfigAdapter = createHybridChannelConfigAdapter<ResolvedSmsAccount>({
     "dangerouslyDisableSignatureValidation",
     "dmPolicy",
     "allowFrom",
+    "allowTo",
+    "execApprovals",
     "textChunkLimit",
     "mediaMaxMb",
   ],
@@ -246,6 +250,7 @@ async function sendSmsText(ctx: {
   if (!looksLikeSmsPhoneNumber(to)) {
     throw new Error(`Invalid SMS target: ${ctx.to}`);
   }
+  assertSmsOutboundTargetAllowed(account, to);
   const results = await sendSmsTextChunks({
     account,
     to,
@@ -304,6 +309,7 @@ async function prepareSmsAttachmentAttempt(
   if (!looksLikeSmsPhoneNumber(to)) {
     throw new Error(`Invalid SMS target: ${ctx.to}`);
   }
+  assertSmsOutboundTargetAllowed(account, to);
   const attempt = await prepareSmsMediaAttempt({
     account,
     text: ctx.text,
@@ -515,6 +521,7 @@ export const smsPlugin: ChannelPlugin<ResolvedSmsAccount, SmsProbe> = createChat
       ],
     },
     message: smsMessageAdapter,
+    approvalCapability: smsApprovalCapability,
   },
   pairing: {
     text: {
@@ -547,11 +554,29 @@ export const smsPlugin: ChannelPlugin<ResolvedSmsAccount, SmsProbe> = createChat
     resolveTarget: ({ cfg, to, accountId }) => {
       const explicit = normalizeSmsPhoneNumber(to ?? "");
       if (explicit) {
+        if (cfg) {
+          try {
+            assertSmsOutboundTargetAllowed(resolveSmsAccount(cfg, accountId), explicit);
+          } catch (error) {
+            return {
+              ok: false,
+              error: error instanceof Error ? error : new Error(String(error)),
+            };
+          }
+        }
         return { ok: true, to: explicit };
       }
       if (cfg) {
         const account = resolveSmsAccount(cfg, accountId);
         if (account.defaultTo) {
+          try {
+            assertSmsOutboundTargetAllowed(account, account.defaultTo);
+          } catch (error) {
+            return {
+              ok: false,
+              error: error instanceof Error ? error : new Error(String(error)),
+            };
+          }
           return { ok: true, to: account.defaultTo };
         }
       }

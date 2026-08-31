@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
-import {
-  openOpenClawStateDatabase,
-  runOpenClawStateWriteTransaction,
-} from "../state/openclaw-state-db.js";
+import { runOpenClawStateWriteTransaction } from "../state/openclaw-state-db.js";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
@@ -87,7 +85,12 @@ export function readLegacyMigrationReceipt(
   sourceKey: string,
   env: NodeJS.ProcessEnv,
 ): LegacyMigrationReceipt | null {
-  return readLegacyMigrationReceiptFromDatabase(openOpenClawStateDatabase({ env }).db, sourceKey);
+  return (
+    withExistingOpenClawStateDatabaseReadOnly(
+      ({ db }) => readLegacyMigrationReceiptFromDatabase(db, sourceKey),
+      { env },
+    ) ?? null
+  );
 }
 
 export function recordLegacyMigrationRun(database: DatabaseSync, run: LegacyMigrationRun): void {
