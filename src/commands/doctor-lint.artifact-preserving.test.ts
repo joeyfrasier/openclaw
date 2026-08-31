@@ -1,12 +1,19 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveAgentWorkspaceDir } from "../agents/agent-scope-config.js";
 import { inspectSharedAuthLegacyRowsReadOnly } from "../agents/auth-profiles/shared-store-bootstrap.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveHeartbeatMonitorPlan } from "../cron/heartbeat-monitor.js";
+import { writeCronJobScratch } from "../cron/scratch-store.js";
+import { resolveCronJobsStorePathFromConfig } from "../cron/store.js";
+import { upsertCronJobRow } from "../cron/store/row-codec.js";
 import { clearHealthChecksForTest, registerHealthCheck } from "../flows/health-check-registry.js";
+import { loadOrCreateDeviceIdentity } from "../infra/device-identity.js";
 import { withArtifactPreservingSqliteReadLocations } from "../infra/sqlite-readonly-operations.js";
 import { writePersistedInstalledPluginIndexInstallRecords } from "../plugins/installed-plugin-index-records.js";
 import {
@@ -105,11 +112,16 @@ describe("doctor lint artifact preservation", () => {
   });
 
   it("runs the full registry without opening or changing the source state database", async () => {
-    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-doctor-lint-all-state-"));
+    const rootDir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-doctor-lint-all-state-")),
+    );
     const stateDir = path.join(rootDir, "operator-state");
     const configPath = path.join(stateDir, "openclaw.json");
     const config = {
-      agents: { list: [{ default: true, id: "main" }] },
+      agents: {
+        defaults: { heartbeat: { every: "1h" } },
+        list: [{ default: true, id: "main" }],
+      },
       gateway: { mode: "local" },
       memory: { search: { provider: "local", fallback: "none" } },
     } satisfies OpenClawConfig;
@@ -125,7 +137,28 @@ describe("doctor lint artifact preservation", () => {
       OPENCLAW_STATE_DIR: stateDir,
     };
     const databasePath = resolveOpenClawStateSqlitePath(env);
-    openOpenClawStateDatabase({ env });
+    const heartbeatPath = path.join(resolveAgentWorkspaceDir(config, "main", env), "HEARTBEAT.md");
+    fs.mkdirSync(path.dirname(heartbeatPath), { recursive: true });
+    fs.writeFileSync(heartbeatPath, "# Legacy heartbeat instructions\n");
+    const identity = loadOrCreateDeviceIdentity({ env });
+    const storePath = resolveCronJobsStorePathFromConfig(config, env);
+    const monitorId = randomUUID();
+    const { input: monitor } = expectDefined(
+      resolveHeartbeatMonitorPlan(config, [], { schedulerSeed: identity.deviceId }).specs[0],
+      "expected fixture heartbeat monitor",
+    );
+    upsertCronJobRow(
+      openOpenClawStateDatabase({ env }).db,
+      storePath,
+      { ...monitor, id: monitorId, createdAtMs: 1, updatedAtMs: 1, state: {} },
+      0,
+    );
+    writeCronJobScratch({
+      storePath,
+      jobId: monitorId,
+      content: "tasks:\n  - name: inbox\n    interval: 1h\n    prompt: Check inbox\n",
+      options: { env },
+    });
     closeOpenClawStateDatabaseByPath(databasePath);
     const agentDatabasePath = openOpenClawAgentDatabase({ agentId: "main", env }).path;
     closeOpenClawAgentDatabaseByPath(agentDatabasePath);
@@ -140,6 +173,7 @@ describe("doctor lint artifact preservation", () => {
     const before = snapshotSqliteFamily(databasePath);
     const agentBefore = snapshotSqliteFamily(agentDatabasePath);
     const llamaPresetBefore = snapshotFile(llamaPresetPath);
+    const heartbeatBefore = snapshotFile(heartbeatPath);
     const sourceOpenStacks: string[] = [];
     mocks.openNodeSqliteDatabase.mockImplementation((...args: unknown[]) => {
       if (args[0] === databasePath || args[0] === agentDatabasePath) {
@@ -154,10 +188,33 @@ describe("doctor lint artifact preservation", () => {
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
       await runDoctorLintCli(runtime, { json: true, includeAllChecks: true });
+      const report = JSON.parse(String(stdout.mock.calls.at(-1)?.[0])) as {
+        findings: Array<{ checkId: string; requirement?: string; path?: string }>;
+      };
+      expect(
+        report.findings.filter(
+          (finding) => finding.checkId === "core/doctor/heartbeat-cadence-migration",
+        ),
+      ).toEqual([]);
+      expect(report.findings).toContainEqual(
+        expect.objectContaining({
+          checkId: "core/doctor/heartbeat-task-cron-migration",
+          requirement: "heartbeat-tasks-in-scratch",
+          path: storePath,
+        }),
+      );
+      expect(report.findings).toContainEqual(
+        expect.objectContaining({
+          checkId: "core/doctor/heartbeat-scratch-migration",
+          requirement: "legacy-heartbeat-file",
+          path: heartbeatPath,
+        }),
+      );
       expect(sourceOpenStacks).toEqual([]);
       expect(snapshotSqliteFamily(databasePath)).toEqual(before);
       expect(snapshotSqliteFamily(agentDatabasePath)).toEqual(agentBefore);
       expect(snapshotFile(llamaPresetPath)).toEqual(llamaPresetBefore);
+      expect(snapshotFile(heartbeatPath)).toEqual(heartbeatBefore);
       expect(fs.existsSync(`${databasePath}-shm`)).toBe(true);
       expect(fs.existsSync(`${agentDatabasePath}-shm`)).toBe(true);
     } finally {

@@ -446,6 +446,54 @@ describe("noteSecurityWarnings gateway exposure", () => {
     );
   });
 
+  it.each([
+    { apiKey: "llama-cpp-local", plaintext: false },
+    { apiKey: "ollama-local", plaintext: false },
+    { apiKey: "oauth:fixture-provider", plaintext: false },
+    { apiKey: "UNKNOWN_API_KEY", plaintext: true },
+    { apiKey: "unrecognized-local-key", plaintext: true },
+  ])(
+    "classifies the model auth marker $apiKey consistently with secrets audit",
+    async ({ apiKey, plaintext }) => {
+      const findings = await collectSecurityWarnings(
+        {
+          models: {
+            providers: {
+              fixture: { baseUrl: "http://127.0.0.1:8080/v1", apiKey, models: [] },
+            },
+          },
+        },
+        {},
+      );
+      expect(findings.some((finding) => finding.checkId === "config.plaintext_secrets")).toBe(
+        plaintext,
+      );
+    },
+  );
+
+  it("does not exempt model marker strings in other credential fields", async () => {
+    const findings = await collectSecurityWarnings(
+      {
+        gateway: { auth: { mode: "token", token: "llama-cpp-local" } },
+        models: {
+          providers: {
+            fixture: {
+              baseUrl: "http://127.0.0.1:8080/v1",
+              apiKey: "llama-cpp-local",
+              headers: { Authorization: "llama-cpp-local" },
+              models: [],
+            },
+          },
+        },
+      },
+      {},
+    );
+    const finding = findings.find((entry) => entry.checkId === "config.plaintext_secrets");
+    expect(finding?.remediation).toContain("gateway.auth.token");
+    expect(finding?.remediation).toContain("models.providers.fixture.headers.Authorization");
+    expect(finding?.remediation).not.toContain("models.providers.fixture.apiKey");
+  });
+
   it("warns when model provider API keys are stored as plaintext in config", async () => {
     const cfg = {
       models: {

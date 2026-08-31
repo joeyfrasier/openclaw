@@ -100,8 +100,9 @@ function migrationFinding(params: {
 export async function collectHeartbeatTaskMigrationFindings(
   cfg: OpenClawConfig,
   env: NodeJS.ProcessEnv = process.env,
+  sourceFilesystemEnv: NodeJS.ProcessEnv = env,
 ): Promise<readonly HealthFinding[]> {
-  const storePath = resolveCronJobsStorePathFromConfig(cfg, env);
+  const storePath = resolveCronJobsStorePathFromConfig(cfg, env, sourceFilesystemEnv);
   const findings: HealthFinding[] = [];
   for (const agent of resolveHeartbeatTaskMigrationAgents(cfg)) {
     let monitor: ReturnType<typeof readHeartbeatMonitorScratchReadOnly>;
