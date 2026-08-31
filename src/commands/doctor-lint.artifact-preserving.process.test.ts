@@ -31,7 +31,7 @@ describe("doctor lint process artifact preservation", () => {
     const rootDir = fs.realpathSync(tempDirs.make("openclaw-doctor-lint-process-"));
     const stateDir = path.join(rootDir, "state");
     const configPath = path.join(stateDir, "openclaw.json");
-    const config = {
+    const config: OpenClawConfig = {
       agents: {
         defaults: { heartbeat: { every: "1h" } },
         list: [{ default: true, id: "main" }],
@@ -41,7 +41,7 @@ describe("doctor lint process artifact preservation", () => {
       // If the CLI policy regresses, proxy startup emits a pre-protocol log to
       // stderr. Lint must not initialize this network-capable global runtime.
       proxy: { enabled: true, proxyUrl: "http://127.0.0.1:9" },
-    } satisfies OpenClawConfig;
+    };
     fs.mkdirSync(stateDir, { recursive: true });
     fs.mkdirSync(path.join(stateDir, "agents", "main", "sessions"), { recursive: true });
     fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);

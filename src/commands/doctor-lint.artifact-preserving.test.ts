@@ -117,14 +117,14 @@ describe("doctor lint artifact preservation", () => {
     );
     const stateDir = path.join(rootDir, "operator-state");
     const configPath = path.join(stateDir, "openclaw.json");
-    const config = {
+    const config: OpenClawConfig = {
       agents: {
         defaults: { heartbeat: { every: "1h" } },
         list: [{ default: true, id: "main" }],
       },
       gateway: { mode: "local" },
       memory: { search: { provider: "local", fallback: "none" } },
-    } satisfies OpenClawConfig;
+    };
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);
     const llamaPresetPath = path.join(stateDir, "tools", "llama.cpp", "models.ini");
