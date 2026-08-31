@@ -45,9 +45,9 @@ type HeartbeatSource = {
 async function readHeartbeatSource(
   cfg: OpenClawConfig,
   agentId: string,
-  options?: { recoverClaims?: boolean },
+  options?: { recoverClaims?: boolean; env?: NodeJS.ProcessEnv },
 ): Promise<HeartbeatSource | undefined> {
-  const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
+  const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId, options?.env);
   const heartbeatPath = path.join(workspaceDir, LEGACY_HEARTBEAT_FILENAME);
   let sourceStat;
   try {
@@ -361,15 +361,16 @@ function migrationFinding(params: {
 /** Reports remaining workspace heartbeat files without changing them. */
 export async function collectHeartbeatScratchMigrationFindings(
   cfg: OpenClawConfig,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<readonly HealthFinding[]> {
   const findings: HealthFinding[] = [];
   for (const agent of resolveHeartbeatAgents(cfg)) {
     const heartbeatPath = path.join(
-      resolveAgentWorkspaceDir(cfg, agent.agentId),
+      resolveAgentWorkspaceDir(cfg, agent.agentId, env),
       LEGACY_HEARTBEAT_FILENAME,
     );
     try {
-      const source = await readHeartbeatSource(cfg, agent.agentId);
+      const source = await readHeartbeatSource(cfg, agent.agentId, { env });
       if (!source) {
         continue;
       }
@@ -409,7 +410,7 @@ export async function maybeMigrateHeartbeatFilesToScratch(params: {
   if (!params.shouldRepair) {
     for (const agent of resolveHeartbeatAgents(params.cfg)) {
       try {
-        const source = await readHeartbeatSource(params.cfg, agent.agentId);
+        const source = await readHeartbeatSource(params.cfg, agent.agentId, { env });
         if (source) {
           note(
             `${shortenHomePath(source.path)} will migrate into scratch for Heartbeat (${agent.agentId}).`,
@@ -445,7 +446,7 @@ export async function maybeMigrateHeartbeatFilesToScratch(params: {
   for (const [agentId, monitor] of monitors) {
     let source: HeartbeatSource | undefined;
     try {
-      source = await readHeartbeatSource(params.cfg, agentId, { recoverClaims: true });
+      source = await readHeartbeatSource(params.cfg, agentId, { recoverClaims: true, env });
     } catch (error) {
       warnings.push(`Agent "${agentId}" HEARTBEAT.md was not migrated: ${errorMessage(error)}`);
       continue;

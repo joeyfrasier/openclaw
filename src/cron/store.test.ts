@@ -10,7 +10,11 @@ import {
   archiveLegacyCronStoreForMigration,
   loadLegacyCronStoreForMigration,
 } from "../commands/doctor/cron/legacy-store-migration.js";
-import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
+import { writeConfigMachineState } from "../state/config-machine-state.js";
+import {
+  closeOpenClawStateDatabaseByPath,
+  openOpenClawStateDatabase,
+} from "../state/openclaw-state-db.js";
 import { captureEnv, setTestEnvValue } from "../test-utils/env.js";
 import {
   loadCronJobsStoreWithConfigJobs,
@@ -18,6 +22,7 @@ import {
   loadCronJobsStoreSync,
   loadCronQuarantinedJobs,
   loadCronStore,
+  resolveCronJobsStorePathFromConfig,
   resolveCronStorePath,
   saveCronJobsStore,
   saveCronQuarantinedJobs,
@@ -129,6 +134,51 @@ describe("resolveCronStorePath", () => {
     const result = resolveCronStorePath("~/cron/jobs.json");
     expect(result).toBe(path.resolve("/srv/openclaw-home", "cron", "jobs.json"));
   });
+
+  it.each(["default", "persisted", "legacy-config"] as const)(
+    "resolves the %s partition from the source filesystem and inspected database",
+    async (selection) => {
+      const fixture = await makeStorePath();
+      const root = await fs.realpath(path.dirname(path.dirname(fixture.storePath)));
+      const sourceHome = path.join(root, "source-home");
+      const privateHome = path.join(root, "private-home");
+      const sourceEnv = {
+        ...process.env,
+        HOME: sourceHome,
+        OPENCLAW_HOME: sourceHome,
+        OPENCLAW_STATE_DIR: path.join(root, "source-state"),
+      };
+      const privateEnv = {
+        ...sourceEnv,
+        HOME: privateHome,
+        OPENCLAW_HOME: privateHome,
+        OPENCLAW_STATE_DIR: path.join(root, "private-state"),
+      };
+      const source = openOpenClawStateDatabase({ env: sourceEnv });
+      const inspected = openOpenClawStateDatabase({ env: privateEnv });
+      try {
+        // A source change after snapshot acquisition must not replace the
+        // inspected selector, even though path expansion uses source identity.
+        writeConfigMachineState("cron.store", "~/newer/jobs.json", { env: sourceEnv });
+        if (selection !== "default") {
+          writeConfigMachineState("cron.store", "~/persisted/jobs.json", { env: privateEnv });
+        }
+        const cfg = selection === "legacy-config" ? { cron: { store: "~/legacy/jobs.json" } } : {};
+        expect(resolveCronJobsStorePathFromConfig(cfg, privateEnv, sourceEnv)).toBe(
+          selection === "default"
+            ? path.join(sourceEnv.OPENCLAW_STATE_DIR, "cron", "jobs.json")
+            : path.join(
+                sourceHome,
+                selection === "persisted" ? "persisted" : "legacy",
+                "jobs.json",
+              ),
+        );
+      } finally {
+        closeOpenClawStateDatabaseByPath(inspected.path);
+        closeOpenClawStateDatabaseByPath(source.path);
+      }
+    },
+  );
 });
 
 describe("cron store", () => {

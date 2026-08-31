@@ -94,8 +94,9 @@ function cadenceFinding(params: {
 export async function collectHeartbeatCadenceMigrationFindings(
   cfg: OpenClawConfig,
   env: NodeJS.ProcessEnv = process.env,
+  sourceFilesystemEnv: NodeJS.ProcessEnv = env,
 ): Promise<readonly HealthFinding[]> {
-  const storePath = resolveCronJobsStorePathFromConfig(cfg, env);
+  const storePath = resolveCronJobsStorePathFromConfig(cfg, env, sourceFilesystemEnv);
   try {
     const plan = await loadHeartbeatMonitorPlanReadOnly(cfg, storePath, env);
     return plan.changes.map((change) => cadenceFinding({ storePath, change }));

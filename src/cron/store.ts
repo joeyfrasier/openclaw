@@ -67,25 +67,36 @@ function resolveDefaultCronStorePath(env: NodeJS.ProcessEnv): string {
 }
 
 /** Resolves the cron jobs store path, expanding home-relative user input. */
-export function resolveCronJobsStorePath(storePath?: string, env: NodeJS.ProcessEnv = process.env) {
+export function resolveCronJobsStorePath(
+  storePath?: string,
+  env: NodeJS.ProcessEnv = process.env,
+  sourceFilesystemEnv: NodeJS.ProcessEnv = env,
+) {
+  // Snapshot rows retain their source partition key. Read the selector from the
+  // inspected database, but expand its path in the original filesystem view.
   const selected = storePath?.trim() || readCronStoreStatePath(env);
   if (selected) {
     const raw = selected.trim();
     if (raw.startsWith("~")) {
-      return path.resolve(expandHomePrefix(raw, { env }));
+      return path.resolve(expandHomePrefix(raw, { env: sourceFilesystemEnv }));
     }
     return path.resolve(raw);
   }
-  return resolveDefaultCronStorePath(env);
+  return resolveDefaultCronStorePath(sourceFilesystemEnv);
 }
 
 /** Resolves the active cron partition from runtime config and environment. */
 export function resolveCronJobsStorePathFromConfig(
   cfg: { cron?: unknown },
   env: NodeJS.ProcessEnv = process.env,
+  sourceFilesystemEnv: NodeJS.ProcessEnv = env,
 ): string {
   const store = (cfg.cron as { store?: unknown } | undefined)?.store;
-  return resolveCronJobsStorePath(typeof store === "string" ? store : undefined, env);
+  return resolveCronJobsStorePath(
+    typeof store === "string" ? store : undefined,
+    env,
+    sourceFilesystemEnv,
+  );
 }
 
 /** Loads cron jobs plus config/runtime sidecars from the SQLite-backed store. */

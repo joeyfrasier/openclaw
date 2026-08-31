@@ -281,7 +281,11 @@ export function resolveFinalDoctorHealthContributions(params: {
         async detect(ctx) {
           const { collectHeartbeatCadenceMigrationFindings } =
             await import("../commands/doctor-heartbeat-cadence-migration.js");
-          return collectHeartbeatCadenceMigrationFindings(ctx.cfg, ctx.env);
+          return collectHeartbeatCadenceMigrationFindings(
+            ctx.cfg,
+            ctx.env,
+            ctx.sourceFilesystemEnv,
+          );
         },
       },
       run: runHeartbeatCadenceMigrationHealth,
@@ -295,7 +299,10 @@ export function resolveFinalDoctorHealthContributions(params: {
         async detect(ctx) {
           const { collectHeartbeatScratchMigrationFindings } =
             await import("../commands/doctor-heartbeat-scratch-migration.js");
-          return collectHeartbeatScratchMigrationFindings(ctx.cfg);
+          return collectHeartbeatScratchMigrationFindings(
+            ctx.cfg,
+            ctx.sourceFilesystemEnv ?? ctx.env,
+          );
         },
       },
       run: runHeartbeatScratchMigrationHealth,
@@ -323,7 +330,7 @@ export function resolveFinalDoctorHealthContributions(params: {
         async detect(ctx) {
           const { collectHeartbeatTaskMigrationFindings } =
             await import("../commands/doctor-heartbeat-task-migration.js");
-          return collectHeartbeatTaskMigrationFindings(ctx.cfg, ctx.env);
+          return collectHeartbeatTaskMigrationFindings(ctx.cfg, ctx.env, ctx.sourceFilesystemEnv);
         },
       },
       run: runHeartbeatTaskMigrationHealth,

@@ -1,6 +1,7 @@
 /** Security warnings for gateway exposure, exec policy drift, channel DMs, and plaintext secrets. */
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { note } from "../../packages/terminal-core/src/note.js";
+import { isNonSecretApiKeyMarker } from "../agents/model-auth-markers.js";
 import { listReadOnlyChannelPluginsForConfig } from "../channels/plugins/read-only.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig, GatewayBindMode } from "../config/config.js";
@@ -236,6 +237,13 @@ function collectPlaintextConfigSecretWarnings(cfg: OpenClawConfig): SecurityAudi
 
   for (const target of discoverConfigSecretTargets(cfg)) {
     if (!target.entry.includeInAudit) {
+      continue;
+    }
+    if (
+      target.entry.id === "models.providers.*.apiKey" &&
+      typeof target.value === "string" &&
+      isNonSecretApiKeyMarker(target.value)
+    ) {
       continue;
     }
     if (
