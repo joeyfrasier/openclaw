@@ -34,6 +34,14 @@ type OpenClawAgentDatabaseReadOnlyResult<T> =
   | { found: true; value: T }
   | { found: false; reason: "database-missing" | "schema-missing" | "table-missing" };
 
+function isMissingTableError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as NodeJS.ErrnoException).code === "ERR_SQLITE_ERROR" &&
+    /\bno such table:/iu.test(error.message)
+  );
+}
+
 /**
  * Look up a process-held handle without adopting writer-side failures.
  *
