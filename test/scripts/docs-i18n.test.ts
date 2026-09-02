@@ -33,7 +33,20 @@ describe.skipIf(!hasGoToolchain)("docs-i18n Go module", () => {
 
   afterAll(() => {
     if (tempDir) {
-      rmSync(tempDir, { force: true, recursive: true });
+      // Go's downloaded toolchain has enough nested entries to expose a macOS
+      // node:fs recursive-removal race. Let Go remove its own writable cache,
+      // then use Node only for the small suite-owned remainder.
+      const cleanup = spawnSync("go", ["clean", "-modcache"], {
+        encoding: "utf8",
+        env: { ...process.env, GOMODCACHE: path.join(tempDir, "gomodcache") },
+      });
+      if (cleanup.error || cleanup.status !== 0) {
+        throw (
+          cleanup.error ??
+          new Error(cleanup.stderr || cleanup.stdout || "failed to clean Go module cache")
+        );
+      }
+      rmSync(tempDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 50 });
     }
   });
 
