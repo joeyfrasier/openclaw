@@ -130,6 +130,40 @@ describe("SMS approval bridge", () => {
     }
   });
 
+  it.each([
+    { allowFrom: [OWNER], allowTo: [] },
+    { allowFrom: [OWNER], allowTo: [OTHER] },
+    { allowFrom: [OTHER], allowTo: [OWNER] },
+  ])(
+    "disables approvals without an approver reachable in both allowlists",
+    ({ allowFrom, allowTo }) => {
+      const getState = smsApprovalCapability.getActionAvailabilityState;
+      const sms = { ...createConfig().channels?.sms, allowFrom, allowTo };
+
+      expect(
+        getState?.({
+          cfg: { channels: { sms } } as OpenClawConfig,
+          accountId: "default",
+          approvalKind: "exec",
+        }),
+      ).toEqual({ kind: "disabled" });
+    },
+  );
+
+  it("refuses to render an approval prompt for an outbound non-approver", () => {
+    const renderPending = smsApprovalCapability.render?.exec?.buildPendingPayload;
+    const sms = { ...createConfig().channels?.sms, allowTo: [OWNER, OTHER] };
+
+    expect(() =>
+      renderPending?.({
+        cfg: { channels: { sms } } as OpenClawConfig,
+        request: createRequest(),
+        target: { channel: "sms", to: OTHER, accountId: "default" },
+        nowMs: 1_000,
+      }),
+    ).toThrow("SMS_APPROVAL_TARGET_NOT_AUTHORIZED");
+  });
+
   it("exposes allow-once and deny without leaking command, cwd, env, or full approval id", () => {
     const request = createRequest();
     const payload = buildSmsApprovalPendingPayload({
@@ -148,16 +182,38 @@ describe("SMS approval bridge", () => {
     expect(payload?.text).not.toContain(request.id);
   });
 
-  it("always renders a redacted prompt so generic command-bearing fallback cannot run", () => {
-    const payload = buildSmsApprovalPendingPayload({
-      cfg: { channels: { sms: { enabled: false } } } as OpenClawConfig,
-      request: createRequest(),
-      target: { channel: "sms", to: OTHER, accountId: "default" },
-      nowMs: 1_000,
-    });
-    expect(payload.text).toContain("one bounded execution");
-    expect(payload.text).not.toContain("customer-secret-123");
-    expect(payload.text).not.toContain("/private/customer/acme");
+  it("throws for an unavailable target so generic command-bearing fallback cannot run", () => {
+    const renderPending = smsApprovalCapability.render?.exec?.buildPendingPayload;
+    expect(() =>
+      renderPending?.({
+        cfg: { channels: { sms: { enabled: false } } } as OpenClawConfig,
+        request: createRequest(),
+        target: { channel: "sms", to: OTHER, accountId: "default" },
+        nowMs: 1_000,
+      }),
+    ).toThrow("SMS_APPROVAL_TARGET_NOT_AUTHORIZED");
+  });
+
+  it("filters an unauthorized SMS target before generic forwarding fallback", () => {
+    const shouldSuppress = smsApprovalCapability.delivery?.shouldSuppressForwardingFallback;
+    const sms = { ...createConfig().channels?.sms, allowTo: [OWNER, OTHER] };
+
+    expect(
+      shouldSuppress?.({
+        cfg: { channels: { sms } } as OpenClawConfig,
+        approvalKind: "exec",
+        target: { channel: "sms", to: OTHER, accountId: "default" },
+        request: createRequest(),
+      }),
+    ).toBe(true);
+    expect(
+      shouldSuppress?.({
+        cfg: { channels: { sms } } as OpenClawConfig,
+        approvalKind: "exec",
+        target: { channel: "sms", to: OWNER, accountId: "default" },
+        request: createRequest(),
+      }),
+    ).toBe(false);
   });
 
   it("changes the opaque action fingerprint whenever a bound action changes", () => {

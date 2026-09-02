@@ -363,7 +363,11 @@ export function createChannelProgressDraftCompositor(params: {
         lastIdLessCommentaryBare.startsWith(commentary.bareNormalized) ||
         commentary.bareNormalized.endsWith(lastIdLessCommentaryBare) ||
         lastIdLessCommentaryBare.endsWith(commentary.bareNormalized));
-    if (continuesOpenLine && lastIdLessCommentaryId) {
+    if (
+      continuesOpenLine &&
+      lastIdLessCommentaryId &&
+      (!commentary.itemId || commentaryItemIdByLineId.get(lastIdLessCommentaryId) === undefined)
+    ) {
       return lastIdLessCommentaryId;
     }
     if (commentary.itemId) {

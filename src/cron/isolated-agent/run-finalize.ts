@@ -341,6 +341,7 @@ export async function finalizeCronRun(params: {
     hasFatalStructuredErrorPayload,
     pendingPresentationWarningError,
   } = cronPayloadOutcome;
+  let effectiveDeliveryDisposition = deliveryDisposition;
   let {
     synthesizedText,
     deliveryPayloads,
@@ -457,15 +458,23 @@ export async function finalizeCronRun(params: {
     synthesizedText = gate.text;
     outputText = gate.text;
     summary = pickSummaryFromOutput(gate.text) ?? gate.text;
+    // The model may have returned HEARTBEAT_OK, NO_REPLY, or an empty payload,
+    // but the gate just installed visible, approved delivery text. Reclassify
+    // the effective payload so the downstream heartbeat suppression cannot
+    // silently discard the gated brief.
+    effectiveDeliveryDisposition = { kind: "visible" };
   }
 
   const acceptedSessionSpawn = hasAcceptedSessionSpawn(finalRunResult.acceptedSessionSpawns);
   const heartbeatOnlyResponse =
-    prepared.deliveryRequested && !hasFatalErrorPayload && deliveryDisposition.kind !== "visible";
+    prepared.deliveryRequested &&
+    !hasFatalErrorPayload &&
+    effectiveDeliveryDisposition.kind !== "visible";
   const heartbeatControlOnlyResponse =
     heartbeatOnlyResponse &&
-    (deliveryDisposition.kind === "empty" ||
-      (deliveryDisposition.kind === "heartbeat" && deliveryDisposition.controlOnly));
+    (effectiveDeliveryDisposition.kind === "empty" ||
+      (effectiveDeliveryDisposition.kind === "heartbeat" &&
+        effectiveDeliveryDisposition.controlOnly));
   const spawnOnlyHandoff =
     acceptedSessionSpawn &&
     (heartbeatControlOnlyResponse ||
@@ -578,7 +587,10 @@ export async function finalizeCronRun(params: {
     skipDelivery: skipHeartbeatDelivery
       ? hasIntentionalSilentReply
         ? "silent"
-        : deliveryDisposition.kind
+        : effectiveDeliveryDisposition.kind === "heartbeat" ||
+            effectiveDeliveryDisposition.kind === "empty"
+          ? effectiveDeliveryDisposition.kind
+          : undefined
       : undefined,
     spawnOnlyHandoff,
     sourceDeliveryOutcome,

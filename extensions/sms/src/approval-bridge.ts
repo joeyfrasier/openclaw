@@ -6,7 +6,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { inspectSmsAccount, resolveSmsAccount } from "./accounts.js";
-import { normalizeSmsPhoneNumber } from "./phone.js";
+import { looksLikeSmsPhoneNumber, normalizeSmsPhoneNumber } from "./phone.js";
 
 const SMS_APPROVAL_DECISIONS = ["allow-once", "deny"] as const;
 
@@ -62,6 +62,12 @@ function isSmsApprovalAccountSafe(params: {
 }): boolean {
   const account = resolveSmsAccount(params.cfg, params.accountId);
   const inspection = inspectSmsAccount(params.cfg, params.accountId);
+  const reachableApprover = (account.execApprovals?.approvers ?? []).some(
+    (approver) =>
+      looksLikeSmsPhoneNumber(approver) &&
+      account.allowFrom.includes(approver) &&
+      account.allowTo?.includes(approver),
+  );
   return Boolean(
     account.enabled &&
     account.accountSid &&
@@ -71,8 +77,7 @@ function isSmsApprovalAccountSafe(params: {
     !account.dangerouslyDisableSignatureValidation &&
     account.dmPolicy === "allowlist" &&
     account.execApprovals?.enabled === true &&
-    account.execApprovals.approvers.length > 0 &&
-    account.allowTo,
+    reachableApprover,
   );
 }
 
@@ -101,6 +106,20 @@ function buildSmsApprovalPendingPayload(params: {
   target: { channel: string; to: string; accountId?: string | null };
   nowMs: number;
 }): ReplyPayload {
+  // Rendering is the final delivery boundary. A configured outbound target is
+  // not necessarily an approval owner, so refuse to disclose even the opaque
+  // approval slug unless the exact recipient can also authorize the reply.
+  if (
+    !isSmsApprovalOwner({
+      cfg: params.cfg,
+      accountId: params.target.accountId,
+      senderId: params.target.to,
+    })
+  ) {
+    // Throw instead of returning null: the generic forwarding layer treats a
+    // null channel payload as permission to render its command-bearing fallback.
+    throw new Error("SMS_APPROVAL_TARGET_NOT_AUTHORIZED");
+  }
   const approvalSlug = params.request.id.slice(0, 8);
   const fingerprint = buildSmsApprovalActionFingerprint(params.request);
   const expiresIn = formatExpiresIn(params.request.expiresAtMs, params.nowMs);
@@ -128,6 +147,15 @@ function buildSmsApprovalResolvedPayload(params: {
 }
 
 export const smsApprovalCapability: ChannelApprovalCapability = {
+  delivery: {
+    shouldSuppressForwardingFallback: ({ cfg, approvalKind, target }) =>
+      approvalKind === "exec" &&
+      !isSmsApprovalOwner({
+        cfg,
+        accountId: target.accountId,
+        senderId: target.to,
+      }),
+  },
   authorizeActorAction: ({ cfg, accountId, senderId, approvalKind }) => {
     if (approvalKind !== "exec") {
       return { authorized: false, reason: "SMS can resolve exec approvals only." };

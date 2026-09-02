@@ -54,4 +54,32 @@ describe("channel progress draft commentary identity", () => {
       expect.objectContaining({ id: "commentary:commentary-2", text: "_Checking the workspace._" }),
     ]);
   });
+
+  it("does not let a second explicit item claim an id-less line already adopted by another item", async () => {
+    const update = vi.fn();
+    const progress = createChannelProgressDraftCompositor({
+      entry: { streaming: { mode: "progress", progress: { label: false, commentary: true } } },
+      mode: "progress",
+      active: true,
+      seed: "test",
+      update,
+    });
+
+    await progress.pushCommentaryProgress("Checking", {});
+    await progress.pushCommentaryProgress("Checking the workspace.", {
+      itemId: "commentary-1",
+    });
+    await progress.pushCommentaryProgress("Checking the workspace.", {
+      itemId: "commentary-2",
+    });
+
+    expect(progress.getSnapshot().lines).toEqual([
+      expect.objectContaining({ text: "_Checking the workspace._" }),
+      expect.objectContaining({
+        id: "commentary:commentary-2",
+        text: "_Checking the workspace._",
+      }),
+    ]);
+    expect(progress.getSnapshot().lines[0]?.id).not.toBe("commentary:commentary-2");
+  });
 });

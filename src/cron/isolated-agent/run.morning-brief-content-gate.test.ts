@@ -101,6 +101,32 @@ describe("morning brief delivery gate", () => {
     expect(JSON.stringify(dispatchCronDeliveryMock.mock.calls)).not.toContain(UNGATED_REPLY);
   });
 
+  it.each(["HEARTBEAT_OK", "NO_REPLY", ""])(
+    "delivers successful gated text when the model returns %j",
+    async (modelText) => {
+      runEmbeddedAgentMock.mockResolvedValue({
+        payloads: modelText ? [{ text: modelText }] : [],
+        meta: { agentMeta: {} },
+      });
+      runGateMock.mockResolvedValue({
+        ok: true,
+        text: "safe gated fixture",
+        draftPath: DRAFT_PATH,
+      });
+
+      const result = await runMorningBrief();
+
+      expect(dispatchCronDeliveryMock).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          deliveryPayloads: [{ text: "safe gated fixture" }],
+          synthesizedText: "safe gated fixture",
+          outputText: "safe gated fixture",
+        }),
+      );
+      expect(result).toMatchObject({ status: "ok", delivered: true });
+    },
+  );
+
   it.each([
     { stage: "check", reason: "flagged" },
     { stage: "secure", reason: "unavailable" },
