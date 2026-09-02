@@ -3619,14 +3619,27 @@ describe("dispatchPreparedSlackMessage preview fallback", () => {
     // The id-less commentary payload lane produced the leading fragment in the
     // incident. Slack owns the native compositor callback instead.
     expect(capturedReplyOptions?.commentaryPayloadsEnabled).toBeUndefined();
-    const streamedDeltas = [...startSlackStreamMock.mock.calls, ...appendSlackStreamMock.mock.calls]
-      .map((call) => requireRecord(call[0], "native commentary append").text)
-      .filter((text): text is string => typeof text === "string");
-    expect(streamedDeltas).toEqual([
-      "Accepted. I",
-      "’m",
-      " checking the workspace before replying.",
-    ]);
+    // v2026.8.2 may coalesce adjacent suffixes into the terminal native-stream
+    // chunk. Verify the append-only contract across start, append, and stop.
+    const streamedDeltas = [
+      ...startSlackStreamMock.mock.calls,
+      ...appendSlackStreamMock.mock.calls,
+      ...stopSlackStreamMock.mock.calls,
+    ].flatMap((call) => {
+      const params = requireRecord(call[0], "native commentary append");
+      const chunks = Array.isArray(params.chunks) ? params.chunks : [];
+      return [
+        ...(typeof params.text === "string" ? [params.text] : []),
+        ...chunks.flatMap((chunk) => {
+          const value = requireRecord(chunk, "native commentary chunk");
+          return value.type === "markdown_text" && typeof value.text === "string"
+            ? [value.text]
+            : [];
+        }),
+      ];
+    });
+    expect(streamedDeltas[0]).toBe("Accepted. I");
+    expect(streamedDeltas.length).toBeGreaterThanOrEqual(2);
     expect(streamedDeltas.join("")).toBe(sentence);
     expect(streamedDeltas.join("").match(/Accepted\./gu) ?? []).toHaveLength(1);
     expect(streamedDeltas.slice(1).every((delta) => !delta.includes("Accepted."))).toBe(true);

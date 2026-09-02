@@ -1,5 +1,7 @@
 import {
   type AgentPlanStep,
+  buildChannelProgressDraftLine,
+  buildChannelProgressDraftLineForEntry,
   createChannelProgressDraftCompositor,
   createDraftStreamLoop,
   formatChannelProgressDraftText,
