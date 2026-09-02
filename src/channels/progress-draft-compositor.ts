@@ -131,6 +131,7 @@ export function createChannelProgressDraftCompositor(params: {
   let lastIdLessCommentaryBare = "";
   const commentaryLineIdByBareText = new Map<string, string>();
   const commentaryLineIdByItemId = new Map<string, string>();
+  const commentaryItemIdByLineId = new Map<string, string>();
   // Model preambles and narration share the status slot while tool lines keep
   // accumulating underneath for turns where neither source is available.
   let preambleText = "";
@@ -222,6 +223,7 @@ export function createChannelProgressDraftCompositor(params: {
     lastIdLessCommentaryBare = "";
     commentaryLineIdByBareText.clear();
     commentaryLineIdByItemId.clear();
+    commentaryItemIdByLineId.clear();
     preambleText = "";
     preambleItemId = undefined;
     preambleAt = undefined;
@@ -331,20 +333,24 @@ export function createChannelProgressDraftCompositor(params: {
     normalized: string;
     bareNormalized: string;
   }): string => {
-    // The same note is reported with and without its item id. Resolve text
-    // first so either arrival order keeps one line, then retain the adopted
-    // identity as cumulative snapshots extend that note.
-    const knownLineId = commentary.bareNormalized
-      ? commentaryLineIdByBareText.get(commentary.bareNormalized)
-      : undefined;
-    if (knownLineId) {
-      return knownLineId;
-    }
+    // The same note may be reported with and without its item id. An id-less
+    // duplicate can adopt a known line, and an explicit item can adopt a line
+    // that is still id-less. Two distinct explicit item ids must never collapse
+    // merely because their current text is identical.
     if (commentary.itemId) {
       const adoptedLineId = commentaryLineIdByItemId.get(commentary.itemId);
       if (adoptedLineId) {
         return adoptedLineId;
       }
+    }
+    const knownLineId = commentary.bareNormalized
+      ? commentaryLineIdByBareText.get(commentary.bareNormalized)
+      : undefined;
+    if (
+      knownLineId &&
+      (!commentary.itemId || commentaryItemIdByLineId.get(knownLineId) === undefined)
+    ) {
+      return knownLineId;
     }
     if (!commentary.normalized) {
       // Sanitized to nothing (directive-only / NO_REPLY): no line to address, so
@@ -751,6 +757,7 @@ export function createChannelProgressDraftCompositor(params: {
       }
       if (itemId) {
         commentaryLineIdByItemId.set(itemId, lineId);
+        commentaryItemIdByLineId.set(lineId, itemId);
       }
       return await startAndRender();
     },

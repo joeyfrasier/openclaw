@@ -109,6 +109,7 @@ export function readPersistedLockedRuntimeSelectionsReadOnly(
   const selections = new Map<string, PersistedLockedRuntimeSelection>();
   let lockedSelectionRows = 0;
   for (const row of result.value) {
+    const projectedRuntime = normalizeRuntimeId(row.current_agent_harness_id);
     const retainedTombstone =
       row.entry_valid === -1 &&
       row.entry_json === "{}" &&
@@ -117,17 +118,25 @@ export function readPersistedLockedRuntimeSelectionsReadOnly(
       continue;
     }
     if (row.entry_valid !== 1) {
+      // A malformed unrelated row cannot activate an external runtime when
+      // the retained current-window projection has no harness owner. Startup
+      // must still fail closed when a projected runtime row is malformed.
+      if (!projectedRuntime) {
+        continue;
+      }
       return blocked("invalid-entry");
     }
     const entry = parseSessionEntryJson(row);
     if (!entry) {
+      if (!projectedRuntime) {
+        continue;
+      }
       return blocked("invalid-entry");
     }
     if (entry.modelSelectionLocked !== true) {
       continue;
     }
     const runtime = normalizeRuntimeId(entry.agentHarnessId);
-    const projectedRuntime = normalizeRuntimeId(row.current_agent_harness_id);
     if (!runtime && !projectedRuntime) {
       // Model locking predates harness ownership. Those rows do not activate a runtime.
       continue;

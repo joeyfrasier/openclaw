@@ -331,8 +331,11 @@ function createCronPromptExecutor(params: {
     execTarget: params.job.toolsAllowExecTarget,
   });
   const { sourceDelivery } = params;
-  const messageToolBlockedByServerGate =
-    params.job.id === MORNING_BRIEF_CRON_JOB_ID && params.deliveryRequested === true;
+  // The morning brief is protected by a server-side content gate regardless of
+  // its automatic delivery mode. Keeping the message tool available for a
+  // mode:none run would let the model post directly to Slack and bypass that
+  // gate, because the finalizer only gates an explicitly requested delivery.
+  const messageToolBlockedByServerGate = params.job.id === MORNING_BRIEF_CRON_JOB_ID;
   const effectiveMessageToolEnabled =
     sourceDelivery.messageTool.enabled && !messageToolBlockedByServerGate;
   const sourceReplyDeliveryMode = sourceDelivery.sourceReplyDeliveryMode;

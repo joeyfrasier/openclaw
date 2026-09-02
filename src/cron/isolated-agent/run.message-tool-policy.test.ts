@@ -1031,6 +1031,22 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
     expectEmbeddedRunFields({ disableMessageTool: false });
   });
 
+  it("removes the message tool from a gated morning brief when delivery is not requested", async () => {
+    mockRunCronFallbackPassthrough();
+    const morningBriefJob = makeAnnounceMessageToolJob({
+      id: MORNING_BRIEF_CRON_JOB_ID,
+      delivery: { mode: "none" },
+    });
+    const executor = createMessageToolExecutor({
+      job: morningBriefJob,
+      deliveryRequested: false,
+    });
+    await executor.runPrompt("draft the morning brief");
+
+    expectEmbeddedRunFields({ disableMessageTool: true });
+    expect(expectEmbeddedRunPrompt(true)).not.toMatch(/use the message tool/i);
+  });
+
   it("removes the message tool before the gated morning brief executes", async () => {
     mockRunCronFallbackPassthrough();
     const morningBriefJob = makeAnnounceMessageToolJob({ id: MORNING_BRIEF_CRON_JOB_ID });

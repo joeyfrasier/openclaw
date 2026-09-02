@@ -35,4 +35,23 @@ describe("channel progress draft commentary identity", () => {
     expect(update.mock.calls.at(-1)?.[0]).toBe(`_${finalSentence}_`);
     expect(update.mock.calls.at(-1)?.[0].match(/Accepted\./gu) ?? []).toHaveLength(1);
   });
+
+  it("keeps identical commentary from distinct explicit item ids on distinct lines", async () => {
+    const update = vi.fn();
+    const progress = createChannelProgressDraftCompositor({
+      entry: { streaming: { mode: "progress", progress: { label: false, commentary: true } } },
+      mode: "progress",
+      active: true,
+      seed: "test",
+      update,
+    });
+
+    await progress.pushCommentaryProgress("Checking the workspace.", { itemId: "commentary-1" });
+    await progress.pushCommentaryProgress("Checking the workspace.", { itemId: "commentary-2" });
+
+    expect(progress.getSnapshot().lines).toEqual([
+      expect.objectContaining({ id: "commentary:commentary-1", text: "_Checking the workspace._" }),
+      expect.objectContaining({ id: "commentary:commentary-2", text: "_Checking the workspace._" }),
+    ]);
+  });
 });

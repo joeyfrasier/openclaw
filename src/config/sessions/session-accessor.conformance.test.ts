@@ -1300,6 +1300,46 @@ describe("sqlite session normalization", () => {
     });
   });
 
+  it("ignores an unrelated malformed row with no retained runtime projection", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    await upsertSessionEntryCore(
+      { ...baseScope, sessionKey: "agent:main:locked-codex" },
+      {
+        agentHarnessId: "codex",
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        modelSelectionLocked: true,
+        sessionId: "locked-codex-session",
+        updatedAt: 20,
+      },
+    );
+    const unrelatedScope = {
+      ...baseScope,
+      sessionKey: "agent:main:malformed-unrelated",
+    };
+    await upsertSessionEntryCore(unrelatedScope, {
+      sessionId: "malformed-unrelated-session",
+      updatedAt: 10,
+    });
+    const database = openOpenClawAgentDatabase({ agentId: "main", env, path: paths.sqlitePath });
+    database.db
+      .prepare("UPDATE session_nodes SET entry_json = ? WHERE session_key = ?")
+      .run("{", unrelatedScope.sessionKey);
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(baseScope)).toEqual({
+      status: "complete",
+      selections: [
+        {
+          modelId: "gpt-5.5",
+          provider: "openai",
+          runtime: "codex",
+          sessionKey: "agent:main:locked-codex",
+        },
+      ],
+    });
+  });
+
   it("skips exact transcript-retaining tombstones without hiding a valid locked runtime", async () => {
     const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
     const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
