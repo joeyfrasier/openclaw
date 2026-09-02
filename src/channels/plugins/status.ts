@@ -26,6 +26,8 @@ export async function buildChannelAccountSnapshotFromAccount<ResolvedAccount>(pa
   accountId: string;
   account: ResolvedAccount;
   runtime?: ChannelAccountSnapshot;
+  /** True only when runtime state was materialized, not cloned from plugin defaults. */
+  runtimeMaterialized?: boolean;
   probe?: unknown;
   audit?: unknown;
   enabledFallback?: boolean;
@@ -53,7 +55,7 @@ export async function buildChannelAccountSnapshotFromAccount<ResolvedAccount>(pa
     ? params.plugin.config.isEnabled(params.account, params.cfg)
     : (described?.enabled ?? snapshot.enabled ?? params.enabledFallback ?? true);
   const configured =
-    params.runtime?.configured ??
+    (params.runtimeMaterialized ? params.runtime?.configured : undefined) ??
     described?.configured ??
     (params.plugin.config.isConfigured
       ? await params.plugin.config.isConfigured(params.account, params.cfg)

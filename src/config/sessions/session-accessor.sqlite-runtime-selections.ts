@@ -1,5 +1,7 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { sql } from "kysely";
 import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
+import { parseAgentSessionKey } from "../../routing/session-key.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import {
   getSessionKysely,
@@ -93,6 +95,21 @@ export function readPersistedLockedRuntimeSelectionsReadOnly(
           "current_window.model_provider as current_model_provider",
           "current_window.session_id as retained_window_id",
         ])
+        // Bound only rows that can affect runtime activation. Ordinary unlocked,
+        // valid session history must not make Gateway startup depend on total
+        // retention volume. Invalid projected rows remain candidates so the read
+        // still fails closed instead of hiding malformed external ownership.
+        .where(
+          sql<boolean>`current_window.agent_harness_id IS NOT NULL
+            AND (
+              session_nodes.entry_valid <> 1
+              OR CASE
+                WHEN json_valid(session_nodes.entry_json)
+                  THEN json_extract(session_nodes.entry_json, '$.modelSelectionLocked') = 1
+                ELSE 1
+              END
+            )`,
+        )
         .orderBy("session_nodes.session_key", "asc")
         .limit(maxInspectedRows + 1),
     ).rows;
@@ -107,7 +124,6 @@ export function readPersistedLockedRuntimeSelectionsReadOnly(
   }
 
   const selections = new Map<string, PersistedLockedRuntimeSelection>();
-  let lockedSelectionRows = 0;
   for (const row of result.value) {
     const projectedRuntime = normalizeRuntimeId(row.current_agent_harness_id);
     const retainedTombstone =
@@ -141,10 +157,6 @@ export function readPersistedLockedRuntimeSelectionsReadOnly(
       // Model locking predates harness ownership. Those rows do not activate a runtime.
       continue;
     }
-    lockedSelectionRows += 1;
-    if (lockedSelectionRows > maxRows) {
-      return blocked("row-limit");
-    }
     const provider = normalizeOptionalString(entry.modelProvider)?.toLowerCase();
     const modelId = normalizeOptionalString(entry.model);
     const projectedProvider = normalizeOptionalString(row.current_model_provider)?.toLowerCase();
@@ -159,8 +171,18 @@ export function readPersistedLockedRuntimeSelectionsReadOnly(
     ) {
       return blocked("invalid-entry");
     }
+    // The built-in runtime never activates a plugin, so it cannot consume the
+    // external-selection budget. Bound distinct external selections per owning
+    // agent, matching the startup caller's eventual deduplication semantics.
+    if (runtime === "openclaw") {
+      continue;
+    }
     const selection = { modelId, provider, runtime, sessionKey: row.session_key } as const;
-    selections.set(JSON.stringify(selection), selection);
+    const owner = parseAgentSessionKey(row.session_key)?.agentId ?? "";
+    selections.set(JSON.stringify({ owner, modelId, provider, runtime }), selection);
+    if (selections.size > maxRows) {
+      return blocked("row-limit");
+    }
   }
   return { status: "complete", selections: [...selections.values()] };
 }

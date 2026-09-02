@@ -262,11 +262,31 @@ describe("buildChannelAccountSnapshotFromAccount", () => {
         accountId: "default",
         account,
         runtime: { accountId: "default", configured: true, running: true },
+        runtimeMaterialized: true,
       }),
     ).resolves.toMatchObject({
       configured: true,
       running: true,
     });
+  });
+
+  it("does not let an unmaterialized plugin default override configured account state", async () => {
+    const account = { enabled: true, configured: true };
+    const plugin = {
+      config: {
+        describeAccount: () => ({ accountId: "default", configured: true }),
+      },
+    } as unknown as ChannelPlugin<typeof account>;
+
+    await expect(
+      buildChannelAccountSnapshotFromAccount({
+        plugin,
+        cfg: {} as OpenClawConfig,
+        accountId: "default",
+        account,
+        runtime: { accountId: "default", enabled: true, configured: false },
+      }),
+    ).resolves.toMatchObject({ configured: true });
   });
 
   it("uses descriptor linkage when no live link resolver exists", async () => {

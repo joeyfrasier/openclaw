@@ -476,6 +476,7 @@ export const channelsHandlers: GatewayRequestHandlers = {
         accountId,
         account,
         runtime: runtimeSnapshot,
+        runtimeMaterialized: true,
         probe: probeResult,
         audit: auditResult,
       });

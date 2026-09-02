@@ -727,6 +727,27 @@ describe("server-channels auto restart", () => {
     });
   });
 
+  it("uses inspected configuration before a plugin default runtime is materialized", () => {
+    const plugin = createTestPlugin({
+      account: { enabled: true, configured: true },
+      describeAccount: () => ({
+        accountId: DEFAULT_ACCOUNT_ID,
+        enabled: true,
+        configured: true,
+      }),
+    });
+    plugin.status = {
+      defaultRuntime: { accountId: DEFAULT_ACCOUNT_ID, enabled: true, configured: false },
+    };
+    installTestRegistry(plugin);
+    const manager = createManager();
+
+    expect(manager.getRuntimeSnapshot().channelAccounts.discord?.default).toMatchObject({
+      configured: true,
+      running: false,
+    });
+  });
+
   it("does not record a clean-exit error for manual abort stops", async () => {
     const startAccount = vi.fn(
       async ({ abortSignal }: { abortSignal: AbortSignal }) =>

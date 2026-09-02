@@ -4,7 +4,7 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
-import { withExistingOpenClawStateDatabaseArtifactPreservingReadOnly } from "./openclaw-state-db-readonly.js";
+import { withExistingOpenClawStateDatabaseReadOnly } from "./openclaw-state-db-readonly.js";
 import { tableExists } from "./openclaw-state-db-schema-helpers.js";
 import type { DB as OpenClawStateKyselyDatabase } from "./openclaw-state-db.generated.js";
 import {
@@ -35,7 +35,7 @@ export function readConfigMachineStateWithMetadata<T>(
   key: string,
   options: OpenClawStateDatabaseOptions = {},
 ): { value: T; updatedAtMs: number } | undefined {
-  return withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(({ db: database }) => {
+  return withExistingOpenClawStateDatabaseReadOnly(({ db: database }) => {
     if (!tableExists(database, "config_machine_state")) {
       return undefined;
     }

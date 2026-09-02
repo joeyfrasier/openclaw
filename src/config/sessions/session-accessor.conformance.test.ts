@@ -1438,7 +1438,7 @@ describe("sqlite session normalization", () => {
     });
   });
 
-  it("blocks an incomplete inspected-row scan even when every inspected row is unlocked", async () => {
+  it("does not count ordinary unlocked rows against the inspected candidate bound", async () => {
     const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
     const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
     for (const index of [1, 2]) {
@@ -1456,7 +1456,60 @@ describe("sqlite session normalization", () => {
 
     expect(
       readPersistedLockedRuntimeSelectionsReadOnly(baseScope, { maxInspectedRows: 1 }),
-    ).toEqual({ status: "blocked", reason: "scan-limit", selections: [] });
+    ).toEqual({ status: "complete", selections: [] });
+  });
+
+  it("deduplicates external selections before enforcing the runtime bound", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    for (const index of [1, 2]) {
+      await upsertSessionEntryCore(
+        { ...baseScope, sessionKey: `agent:main:duplicate-codex-${index}` },
+        {
+          agentHarnessId: "codex",
+          model: "gpt-5.5",
+          modelProvider: "openai",
+          modelSelectionLocked: true,
+          sessionId: `duplicate-codex-session-${index}`,
+          updatedAt: index,
+        },
+      );
+    }
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(baseScope, { maxRows: 1 })).toEqual({
+      status: "complete",
+      selections: [
+        {
+          modelId: "gpt-5.5",
+          provider: "openai",
+          runtime: "codex",
+          sessionKey: "agent:main:duplicate-codex-2",
+        },
+      ],
+    });
+  });
+
+  it("excludes built-in runtime selections from the external runtime bound", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    for (const index of [1, 2]) {
+      await upsertSessionEntryCore(
+        { ...baseScope, sessionKey: `agent:main:built-in-${index}` },
+        {
+          agentHarnessId: "openclaw",
+          model: `model-${index}`,
+          modelProvider: "openai",
+          modelSelectionLocked: true,
+          sessionId: `built-in-session-${index}`,
+          updatedAt: index,
+        },
+      );
+    }
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(baseScope, { maxRows: 1 })).toEqual({
+      status: "complete",
+      selections: [],
+    });
   });
 
   it("maintains normalized session node and window rows", async () => {

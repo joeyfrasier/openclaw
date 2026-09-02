@@ -438,6 +438,7 @@ async function buildHealthAccountRecord(params: {
           accountId: params.accountId,
           account: probeAccount,
           runtime: runtimeSnapshot,
+          runtimeMaterialized: true,
           probe: snapshotProbe,
           enabledFallback: enabled,
           configuredFallback: configured,

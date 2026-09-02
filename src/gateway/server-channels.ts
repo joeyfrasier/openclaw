@@ -1404,7 +1404,8 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
       });
       const accounts: Record<string, ChannelAccountSnapshot> = {};
       for (const id of accountIds) {
-        const current = store.runtimes.get(id) ?? cloneDefaultRuntime(plugin.id, id);
+        const materializedRuntime = store.runtimes.get(id);
+        const current = materializedRuntime ?? cloneDefaultRuntime(plugin.id, id);
         const unavailable = resolveUnavailableChannelAccountSnapshot({
           channelId: plugin.id,
           accountId: id,
@@ -1431,7 +1432,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
         // The running account was built from the materialized secret snapshot. Re-resolving
         // `describeAccount` from raw SecretRef-bearing config can only see an unresolved ref and
         // must not overwrite the runtime's explicit configured truth.
-        const configured = current.configured ?? described?.configured ?? true;
+        const configured = materializedRuntime?.configured ?? described?.configured ?? true;
         const state = resolveChannelAccountState({
           enabled,
           configured,
