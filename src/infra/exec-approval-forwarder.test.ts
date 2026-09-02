@@ -480,6 +480,47 @@ describe("exec approval forwarder", () => {
     expect(deliver).toHaveBeenCalledTimes(2);
   });
 
+  it("passes the latest config to a channel expiry renderer", async () => {
+    vi.useFakeTimers();
+    const buildExpiredPayload = vi.fn(({ cfg }: { cfg: OpenClawConfig }) => ({
+      text: `expiry enabled=${String(cfg.approvals?.exec?.enabled)}`,
+    }));
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "slack",
+          plugin: {
+            ...createChannelTestPluginBase({ id: "slack" as ChannelPlugin["id"] }),
+            approvalCapability: { render: { exec: { buildExpiredPayload } } },
+          } satisfies Pick<
+            ChannelPlugin,
+            "id" | "meta" | "capabilities" | "config" | "approvalCapability"
+          >,
+          source: "test",
+        },
+      ]),
+    );
+    const cfg = makeTargetsCfg([{ channel: "slack", to: "U123" }]);
+    const { deliver, forwarder } = createForwarder({ cfg });
+
+    await expect(forwarder.handleRequested(baseRequest)).resolves.toBe(true);
+    await flushPendingDelivery();
+    if (cfg.approvals?.exec) {
+      cfg.approvals.exec.enabled = false;
+    }
+    await vi.advanceTimersByTimeAsync(baseRequest.expiresAtMs - baseRequest.createdAtMs);
+    await flushPendingDelivery();
+
+    expect(buildExpiredPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ cfg, request: baseRequest }),
+    );
+    expect(getFirstDeliveryText(deliver)).toContain("required");
+    const expiryDelivery = deliver.mock.calls[1]?.[0] as
+      | { payloads?: Array<{ text?: string }> }
+      | undefined;
+    expect(expiryDelivery?.payloads?.[0]?.text).toBe("expiry enabled=false");
+  });
+
   it("deduplicates session and explicit approval targets through normalized route identity", async () => {
     vi.useFakeTimers();
     const cfg = {

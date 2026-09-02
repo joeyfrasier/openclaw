@@ -159,6 +159,25 @@ function buildSmsApprovalResolvedPayload(params: {
   return { text: `OpenClaw exec approval ${params.resolved.id.slice(0, 8)}: ${decision}.` };
 }
 
+function buildSmsApprovalExpiredPayload(params: {
+  cfg: OpenClawConfig;
+  request: { id: string };
+  target: { channel: string; to: string; accountId?: string | null };
+}): ReplyPayload {
+  // Expiry runs after the pending prompt and must use the latest config. A
+  // removed approver receives neither the opaque slug nor any generic fallback.
+  if (
+    !isSmsApprovalOwner({
+      cfg: params.cfg,
+      accountId: params.target.accountId,
+      senderId: params.target.to,
+    })
+  ) {
+    throw new Error("SMS_APPROVAL_TARGET_NOT_AUTHORIZED");
+  }
+  return { text: `OpenClaw exec approval ${params.request.id.slice(0, 8)}: expired.` };
+}
+
 export const smsApprovalCapability: ChannelApprovalCapability = {
   delivery: {
     shouldSuppressForwardingFallback: ({ cfg, approvalKind, target }) =>
@@ -202,6 +221,7 @@ export const smsApprovalCapability: ChannelApprovalCapability = {
   },
   render: {
     exec: {
+      buildExpiredPayload: buildSmsApprovalExpiredPayload,
       buildPendingPayload: buildSmsApprovalPendingPayload,
       buildResolvedPayload: buildSmsApprovalResolvedPayload,
     },

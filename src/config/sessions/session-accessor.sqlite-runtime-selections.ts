@@ -1,6 +1,6 @@
+import type { SQLInputValue } from "node:sqlite";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { sql } from "kysely";
-import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import {
   classifySessionKeyShape,
   normalizeAgentId,
@@ -17,7 +17,6 @@ import type { SessionEntryListScope } from "./session-accessor.types.js";
 
 export const MAX_PERSISTED_LOCKED_RUNTIME_SELECTION_ROWS = 2_000;
 export const MAX_PERSISTED_RUNTIME_SELECTION_INSPECTED_ROWS = 10_000;
-const MAX_PERSISTED_RUNTIME_SELECTION_SCAN_MULTIPLIER = 8;
 
 export type PersistedLockedRuntimeSelection = Readonly<{
   modelId: string;
@@ -145,29 +144,31 @@ export function readPersistedLockedRuntimeSelectionsReadOnly(
           ELSE current_window.agent_harness_id IS NOT NULL
         END`,
       );
-    const maxCandidateRows = maxInspectedRows * MAX_PERSISTED_RUNTIME_SELECTION_SCAN_MULTIPLIER;
-    const candidateRows = executeSqliteQuerySync(
-      database.db,
-      query.orderBy("session_nodes.session_key", "asc").limit(maxCandidateRows + 1),
-      // SAFETY: the selected aliases and nullable columns exactly match this private row projection.
-    ).rows as PersistedRuntimeCandidateRow[];
-    if (candidateRows.length > maxCandidateRows) {
-      return { rows: [], scanLimitExceeded: true } as const;
+    const compiled = query.orderBy("session_nodes.session_key", "asc").compile();
+    // SAFETY: Kysely's SQLite compiler emits only node:sqlite-compatible bound values.
+    const parameters = compiled.parameters as SQLInputValue[];
+    const iterator = database.db.prepare(compiled.sql).iterate(...parameters);
+    const rows: PersistedRuntimeCandidateRow[] = [];
+    try {
+      for (const value of iterator) {
+        // SAFETY: the selected aliases and nullable columns exactly match this private row projection.
+        const row = value as PersistedRuntimeCandidateRow;
+        const ownership = resolveCandidateOwner(row.session_key, resolved.agentId);
+        // A parseable owner absent from the current roster is retired state,
+        // not runtime authority. Stream past it without retaining it or charging
+        // it against the configured owners' inspection budget.
+        if (ownership?.explicit && configuredAgentIds && !configuredAgentIds.has(ownership.owner)) {
+          continue;
+        }
+        rows.push(row);
+        if (rows.length > maxInspectedRows) {
+          return { rows: [], scanLimitExceeded: true } as const;
+        }
+      }
+    } finally {
+      iterator.return?.();
     }
-    const relevantRows = candidateRows.filter((row) => {
-      const ownership = resolveCandidateOwner(row.session_key, resolved.agentId);
-      // A parseable owner absent from the current roster is retired state,
-      // not runtime authority. Skip it before applying the relevant-row cap.
-      return !(
-        ownership?.explicit &&
-        configuredAgentIds &&
-        !configuredAgentIds.has(ownership.owner)
-      );
-    });
-    return {
-      rows: relevantRows.length > maxInspectedRows ? [] : relevantRows,
-      scanLimitExceeded: relevantRows.length > maxInspectedRows,
-    } as const;
+    return { rows, scanLimitExceeded: false } as const;
   }, toDatabaseOptions(resolved));
   if (!result.found) {
     return result.reason === "database-missing"

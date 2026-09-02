@@ -1334,7 +1334,10 @@ describe("sqlite session normalization", () => {
     const database = openOpenClawAgentDatabase({ agentId: "main", env, path: paths.sqlitePath });
     database.db.exec("PRAGMA foreign_keys = OFF");
     try {
-      for (const owner of ["aaa-retired", "bbb-retired"]) {
+      for (const owner of Array.from(
+        { length: 10 },
+        (_, index) => `retired-${String(index).padStart(2, "0")}`,
+      )) {
         const stagedKey = `agent:main:${owner}-malformed-runtime`;
         const sessionKey = `agent:${owner}:malformed-runtime`;
         await upsertSessionEntryCore(
@@ -1363,7 +1366,12 @@ describe("sqlite session normalization", () => {
         .prepare("SELECT session_key FROM session_nodes ORDER BY session_key")
         .all()
         .map((row) => row.session_key),
-    ).toEqual(["agent:aaa-retired:malformed-runtime", "agent:bbb-retired:malformed-runtime"]);
+    ).toEqual(
+      Array.from(
+        { length: 10 },
+        (_, index) => `agent:retired-${String(index).padStart(2, "0")}:malformed-runtime`,
+      ),
+    );
 
     expect(
       readPersistedLockedRuntimeSelectionsReadOnly(baseScope, {

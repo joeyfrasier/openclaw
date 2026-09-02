@@ -282,4 +282,29 @@ describe("SMS approval bridge", () => {
       }),
     ).toThrow("SMS_APPROVAL_TARGET_NOT_AUTHORIZED");
   });
+
+  it("uses only the short approval slug for expiry and revalidates current ownership", () => {
+    const renderExpired = smsApprovalCapability.render?.exec?.buildExpiredPayload;
+    const request = createRequest();
+    const payload = renderExpired?.({
+      cfg: createConfig(),
+      target: { channel: "sms", to: OWNER, accountId: "default" },
+      request,
+    });
+    expect(payload?.text).toContain("approval abcdefab");
+    expect(payload?.text).toContain("expired");
+    expect(payload?.text).not.toContain(request.id);
+
+    const cfg = createConfig();
+    if (cfg.channels?.sms && "execApprovals" in cfg.channels.sms) {
+      cfg.channels.sms.execApprovals = { enabled: true, approvers: [] };
+    }
+    expect(() =>
+      renderExpired?.({
+        cfg,
+        target: { channel: "sms", to: OWNER, accountId: "default" },
+        request,
+      }),
+    ).toThrow("SMS_APPROVAL_TARGET_NOT_AUTHORIZED");
+  });
 });

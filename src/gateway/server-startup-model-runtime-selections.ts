@@ -1,6 +1,7 @@
 import { listAgentIds } from "../agents/agent-scope-config.js";
 import type { AgentHarnessPluginSelection } from "../agents/harness/runtime-plugin-load-plan.js";
 import {
+  MAX_PERSISTED_LOCKED_RUNTIME_SELECTION_ROWS,
   readPersistedLockedRuntimeSelectionsReadOnly,
   type PersistedLockedRuntimeSelection,
 } from "../config/sessions/session-accessor.js";
@@ -59,6 +60,11 @@ export function readGatewayPersistedRuntimePluginSelections(
       const agentSelections = selectionsByAgentId.get(agentId) ?? new Map();
       agentSelections.set(JSON.stringify(selection), selection);
       selectionsByAgentId.set(agentId, agentSelections);
+      if (agentSelections.size > MAX_PERSISTED_LOCKED_RUNTIME_SELECTION_ROWS) {
+        throw new Error(
+          `persisted locked runtime selection scan blocked for agent ${agentId}: row-limit`,
+        );
+      }
     }
   }
   return new Map(

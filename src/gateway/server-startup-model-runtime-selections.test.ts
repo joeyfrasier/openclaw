@@ -13,6 +13,7 @@ vi.mock("../agents/agent-scope-config.js", () => ({
   listAgentIds: () => mocks.configuredAgentIds,
 }));
 vi.mock("../config/sessions/session-accessor.js", () => ({
+  MAX_PERSISTED_LOCKED_RUNTIME_SELECTION_ROWS: 2_000,
   readPersistedLockedRuntimeSelectionsReadOnly: mocks.readSelections,
 }));
 vi.mock("../config/sessions/targets.js", () => ({
@@ -98,6 +99,38 @@ describe("gateway persisted runtime plugin selections", () => {
     expect(mocks.readSelections).toHaveBeenCalledWith(
       { agentId: "main", storePath: "/tmp/main-sessions.json" },
       { configuredAgentIds: new Set(["main"]) },
+    );
+  });
+
+  it("enforces the external runtime bound across every physical store for one owner", () => {
+    mocks.resolveTargets.mockReturnValueOnce([
+      { agentId: "main", storePath: "/tmp/main-sessions.json" },
+      { agentId: "main", storePath: "/tmp/main-sessions-legacy.json" },
+    ]);
+    mocks.readSelections
+      .mockReturnValueOnce({
+        status: "complete",
+        selections: Array.from({ length: 2_000 }, (_, index) => ({
+          modelId: `model-${index}`,
+          provider: "external-provider",
+          runtime: "external-runtime",
+          sessionKey: `agent:main:first-store-${index}`,
+        })),
+      })
+      .mockReturnValueOnce({
+        status: "complete",
+        selections: [
+          {
+            modelId: "one-too-many",
+            provider: "external-provider",
+            runtime: "external-runtime",
+            sessionKey: "agent:main:second-store",
+          },
+        ],
+      });
+
+    expect(() => readGatewayPersistedRuntimePluginSelections({})).toThrow(
+      "persisted locked runtime selection scan blocked for agent main: row-limit",
     );
   });
 });

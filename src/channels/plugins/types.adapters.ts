@@ -565,6 +565,11 @@ export type { ChannelApprovalNativeAdapter } from "./approval-native.types.js";
 
 type ChannelApprovalRenderAdapter = {
   exec?: {
+    buildExpiredPayload?: (params: {
+      cfg: OpenClawConfig;
+      request: ExecApprovalRequest;
+      target: ChannelApprovalForwardTarget;
+    }) => ReplyPayload | null;
     buildPendingPayload?: (params: {
       cfg: OpenClawConfig;
       request: ExecApprovalRequest;
@@ -578,6 +583,11 @@ type ChannelApprovalRenderAdapter = {
     }) => ReplyPayload | null;
   };
   plugin?: {
+    buildExpiredPayload?: (params: {
+      cfg: OpenClawConfig;
+      request: PluginApprovalRequest;
+      target: ChannelApprovalForwardTarget;
+    }) => ReplyPayload | null;
     buildPendingPayload?: (params: {
       cfg: OpenClawConfig;
       request: PluginApprovalRequest;

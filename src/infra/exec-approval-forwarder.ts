@@ -91,6 +91,13 @@ type ApprovalResolvedRenderContext<
   resolved: TResolved;
 };
 
+type ApprovalExpiredRenderContext<
+  TRequest,
+  TRouteRequest extends ApprovalRouteRequest,
+> = ApprovalRenderContext<TRouteRequest> & {
+  request: TRequest;
+};
+
 type ApprovalStrategy<
   TRequest,
   TResolved,
@@ -103,7 +110,9 @@ type ApprovalStrategy<
   getExpiresAtMs: (request: TRequest) => number;
   getRouteRequestFromRequest: (request: TRequest) => TRouteRequest;
   getRouteRequestFromResolved: (resolved: TResolved) => TRouteRequest | null;
-  buildExpiredText: (request: TRequest) => string;
+  buildExpiredPayload: (
+    params: ApprovalExpiredRenderContext<TRequest, TRouteRequest>,
+  ) => ReplyPayload;
   buildPendingPayload: (
     params: ApprovalPendingRenderContext<TRequest, TRouteRequest>,
   ) => ReplyPayload;
@@ -461,6 +470,19 @@ function buildExecResolvedPayload(params: {
   });
 }
 
+function buildExecExpiredPayload(params: {
+  cfg: OpenClawConfig;
+  request: ExecApprovalRequest;
+  target: ForwardTarget;
+}): ReplyPayload {
+  return buildApprovalRenderPayload({
+    target: params.target,
+    renderParams: params,
+    resolveRenderer: (adapter) => adapter?.render?.exec?.buildExpiredPayload,
+    buildFallback: () => ({ text: buildExpiredMessage(params.request) }),
+  });
+}
+
 function buildPluginPendingPayload(params: {
   cfg: OpenClawConfig;
   request: PluginApprovalRequest;
@@ -496,6 +518,19 @@ function buildPluginResolvedPayload(params: {
       buildPluginApprovalResolvedReplyPayload({
         resolved: params.resolved,
       }),
+  });
+}
+
+function buildPluginExpiredPayload(params: {
+  cfg: OpenClawConfig;
+  request: PluginApprovalRequest;
+  target: ForwardTarget;
+}): ReplyPayload {
+  return buildApprovalRenderPayload({
+    target: params.target,
+    renderParams: params,
+    resolveRenderer: (adapter) => adapter?.render?.plugin?.buildExpiredPayload,
+    buildFallback: () => ({ text: buildPluginApprovalExpiredMessage(params.request) }),
   });
 }
 
@@ -637,10 +672,17 @@ function createApprovalHandlers<
     pendingEntry.value = { routeRequest, targets: filteredTargets };
     const expiresInMs = Math.max(0, params.strategy.getExpiresAtMs(request) - params.nowMs());
     pending.scheduleExpiry(pendingEntry, expiresInMs, (expired) => {
+      const currentCfg = params.getConfig();
       void deliverToTargets({
-        cfg,
+        cfg: currentCfg,
         targets: expired.value.targets,
-        buildPayload: () => ({ text: params.strategy.buildExpiredText(request) }),
+        buildPayload: (target) =>
+          params.strategy.buildExpiredPayload({
+            cfg: currentCfg,
+            request,
+            target,
+            routeRequest: expired.value.routeRequest,
+          }),
         deliver: params.deliver,
       }).catch((err: unknown) => {
         log.error(
@@ -710,7 +752,9 @@ function createApprovalStrategy<
 >(params: {
   kind: ChannelApprovalKind;
   config: (cfg: OpenClawConfig) => ExecApprovalForwardingConfig | undefined;
-  buildExpiredText: (request: TRequest) => string;
+  buildExpiredPayload: (
+    params: ApprovalExpiredRenderContext<TRequest, ApprovalRouteRequest>,
+  ) => ReplyPayload;
   buildPendingPayload: (
     params: ApprovalPendingRenderContext<TRequest, ApprovalRouteRequest>,
   ) => ReplyPayload;
@@ -726,7 +770,7 @@ function createApprovalStrategy<
     getExpiresAtMs: (request) => request.expiresAtMs,
     getRouteRequestFromRequest: (request) => extractApprovalRouteRequest(request.request) ?? {},
     getRouteRequestFromResolved: (resolved) => extractApprovalRouteRequest(resolved.request),
-    buildExpiredText: params.buildExpiredText,
+    buildExpiredPayload: params.buildExpiredPayload,
     buildPendingPayload: params.buildPendingPayload,
     buildResolvedPayload: params.buildResolvedPayload,
   };
@@ -735,7 +779,8 @@ function createApprovalStrategy<
 const execApprovalStrategy = createApprovalStrategy<ExecApprovalRequest, ExecApprovalResolved>({
   kind: "exec",
   config: (cfg) => cfg.approvals?.exec,
-  buildExpiredText: buildExpiredMessage,
+  buildExpiredPayload: ({ cfg, request, target }) =>
+    buildExecExpiredPayload({ cfg, request, target }),
   buildPendingPayload: ({ cfg, request, target, nowMs }) =>
     buildExecPendingPayload({
       cfg,
@@ -757,7 +802,8 @@ const pluginApprovalStrategy = createApprovalStrategy<
 >({
   kind: "plugin",
   config: (cfg) => cfg.approvals?.plugin,
-  buildExpiredText: buildPluginApprovalExpiredMessage,
+  buildExpiredPayload: ({ cfg, request, target }) =>
+    buildPluginExpiredPayload({ cfg, request, target }),
   buildPendingPayload: ({ cfg, request, target, nowMs }) =>
     buildPluginPendingPayload({
       cfg,
