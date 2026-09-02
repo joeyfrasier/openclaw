@@ -71,7 +71,7 @@ describe("artifact-preserving shared-state reads", () => {
     });
   });
 
-  it("reuses an idle writable handle without preparing a snapshot", async () => {
+  it("snapshots instead of reusing an idle writable handle", async () => {
     await withTempDir("openclaw-state-readonly-reuse-", async (stateDir) => {
       const options = createOptions(stateDir);
       openOpenClawStateDatabase(options);
@@ -79,7 +79,7 @@ describe("artifact-preserving shared-state reads", () => {
       expect(
         withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(() => "read", options),
       ).toBe("read");
-      expect(snapshotMocks.isolated).not.toHaveBeenCalled();
+      expect(snapshotMocks.isolated).toHaveBeenCalledOnce();
       expect(snapshotMocks.inProcess).not.toHaveBeenCalled();
     });
   });

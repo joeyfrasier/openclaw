@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { stripVTControlCharacters } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   loadPersistedAuthProfileStore,
@@ -162,7 +161,7 @@ afterEach(async () => {
 
 describe("interactive Doctor auth migration", () => {
   it.each(["failed", "completed", "declined"] as const)(
-    "reports interrupted archive recovery when the remaining migration is %s",
+    "leaves interrupted archive recovery pending in read-only mode when the remaining migration is %s",
     async (outcome) => {
       const state = await makeState();
       const sourcePath = await state.writeText("credentials/oauth.json", "{}\n");
@@ -190,36 +189,14 @@ describe("interactive Doctor auth migration", () => {
         env: state.env,
         configPath: path.join(state.stateDir, "openclaw.json"),
       });
-      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-
       await authProfilesContribution().run(ctx);
 
-      const output = stripVTControlCharacters(
-        stdout.mock.calls.map(([chunk]) => String(chunk)).join(""),
-      )
-        .replaceAll("│", "")
-        .replace(/\s+/g, " ");
-      stdout.mockRestore();
-      if (outcome === "failed") {
-        expect(output).toContain("Doctor warnings");
-        expect(
-          output.match(/Could not finalize an interrupted auth profile archive/g),
-        ).toHaveLength(1);
-        expect(output).toContain("invalid pending auth profile migration receipt");
-        expect(fs.readFileSync(sourcePath)).toEqual(sourceBytes);
-        expect(fs.existsSync(receipt.archivePath)).toBe(false);
-      } else {
-        expect(output).toContain("Doctor changes");
-        expect(output.match(/Finalized interrupted auth profile archive/g)).toHaveLength(1);
-        expect(fs.existsSync(sourcePath)).toBe(false);
-        expect(fs.readFileSync(receipt.archivePath)).toEqual(sourceBytes);
-      }
+      expect(fs.readFileSync(sourcePath)).toEqual(sourceBytes);
+      expect(fs.existsSync(receipt.archivePath)).toBe(false);
       if (remainingPath) {
-        expect(prompter.confirmAutoFix).toHaveBeenCalledOnce();
         expect(fs.existsSync(remainingPath)).toBe(true);
-      } else {
-        expect(prompter.confirmAutoFix).not.toHaveBeenCalled();
       }
+      expect(prompter.confirmAutoFix).not.toHaveBeenCalled();
     },
   );
 
