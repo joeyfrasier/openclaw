@@ -604,18 +604,18 @@ function isSqliteReadOnlyWorkerResult(value: unknown): value is SqliteReadOnlyWo
   );
 }
 
-function createSqliteReadOnlyWorkerError(message: string, stderr: string): Error {
-  const stderrTail = stderr.trim().slice(-SQLITE_READONLY_STDERR_TAIL_CHARS);
+function createSqliteReadOnlyWorkerError(message: string, stderr?: string): Error {
+  const stderrTail = stderr?.trim().slice(-SQLITE_READONLY_STDERR_TAIL_CHARS) ?? "";
   return new Error(
     `SQLite read-only worker ${message}${stderrTail ? `\nstderr (tail): ${stderrTail}` : ""}`,
   );
 }
 
 function parseSqliteReadOnlyWorkerResult(
-  stdout: string,
-  stderr: string,
+  stdout: string | undefined,
+  stderr: string | undefined,
 ): SqliteReadOnlyWorkerResult {
-  if (!stdout.trim()) {
+  if (!stdout?.trim()) {
     throw createSqliteReadOnlyWorkerError("returned no JSON result", stderr);
   }
   let message: unknown;
@@ -632,8 +632,8 @@ function parseSqliteReadOnlyWorkerResult(
 
 function adoptSqliteReadOnlyWorkerResult(params: {
   failure?: string;
-  stderr: string;
-  stdout: string;
+  stderr?: string;
+  stdout?: string;
 }): PreparedSqliteReadOnlyLocation {
   let result: SqliteReadOnlyWorkerResult;
   try {
