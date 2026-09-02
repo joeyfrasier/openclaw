@@ -3621,23 +3621,24 @@ describe("dispatchPreparedSlackMessage preview fallback", () => {
     expect(capturedReplyOptions?.commentaryPayloadsEnabled).toBeUndefined();
     // v2026.8.2 may coalesce adjacent suffixes into the terminal native-stream
     // chunk. Verify the append-only contract across start, append, and stop.
-    const streamedDeltas = [
+    const streamedDeltas: string[] = [];
+    for (const call of [
       ...startSlackStreamMock.mock.calls,
       ...appendSlackStreamMock.mock.calls,
       ...stopSlackStreamMock.mock.calls,
-    ].flatMap((call) => {
+    ]) {
       const params = requireRecord(call[0], "native commentary append");
+      if (typeof params.text === "string") {
+        streamedDeltas.push(params.text);
+      }
       const chunks = Array.isArray(params.chunks) ? params.chunks : [];
-      return [
-        ...(typeof params.text === "string" ? [params.text] : []),
-        ...chunks.flatMap((chunk) => {
-          const value = requireRecord(chunk, "native commentary chunk");
-          return value.type === "markdown_text" && typeof value.text === "string"
-            ? [value.text]
-            : [];
-        }),
-      ];
-    });
+      for (const chunk of chunks) {
+        const value = requireRecord(chunk, "native commentary chunk");
+        if (value.type === "markdown_text" && typeof value.text === "string") {
+          streamedDeltas.push(value.text);
+        }
+      }
+    }
     expect(streamedDeltas[0]).toBe("Accepted. I");
     expect(streamedDeltas.length).toBeGreaterThanOrEqual(2);
     expect(streamedDeltas.join("")).toBe(sentence);

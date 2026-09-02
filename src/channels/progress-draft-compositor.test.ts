@@ -1163,3 +1163,5 @@ describe("createChannelProgressDraftCompositor", () => {
     }
   });
 });
+
+/* oxlint-disable max-lines -- Red compatibility coverage extends an upstream oversized file. */

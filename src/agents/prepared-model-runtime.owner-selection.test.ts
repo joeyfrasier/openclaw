@@ -1113,3 +1113,5 @@ describe("prepared model runtime owner selection", () => {
 afterEach(async ({ task }) => {
   await cleanupPreparedModelRuntimeHarness(state, task.result?.state === "fail");
 });
+
+/* oxlint-disable max-lines -- Red compatibility coverage extends an upstream oversized file. */
