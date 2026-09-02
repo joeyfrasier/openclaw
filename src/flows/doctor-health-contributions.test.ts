@@ -1931,7 +1931,11 @@ describe("doctor health contributions", () => {
 
     await check!.detect(createDoctorLintFixture(cfg, { env }));
 
-    expect(mocks.collectHeartbeatCadenceMigrationFindings).toHaveBeenCalledWith(cfg, env);
+    expect(mocks.collectHeartbeatCadenceMigrationFindings).toHaveBeenCalledWith(
+      cfg,
+      env,
+      undefined,
+    );
   });
 
   it("migrates heartbeat files before converting their task blocks", () => {
@@ -1958,7 +1962,7 @@ describe("doctor health contributions", () => {
 
     await check!.detect(createDoctorLintFixture(cfg, { env }));
 
-    expect(mocks.collectHeartbeatTaskMigrationFindings).toHaveBeenCalledWith(cfg, env);
+    expect(mocks.collectHeartbeatTaskMigrationFindings).toHaveBeenCalledWith(cfg, env, undefined);
   });
 
   it("exposes the Skill Workshop tool-policy check to doctor lint", async () => {
