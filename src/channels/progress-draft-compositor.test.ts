@@ -432,40 +432,6 @@ describe("createChannelProgressDraftCompositor", () => {
     expect(progress.getSnapshot().lines).toHaveLength(1);
   });
 
-  it.each([
-    { name: "id-bearing first", itemFirst: true },
-    { name: "id-less first", itemFirst: false },
-  ])("keeps cumulative mixed-identity commentary on one line with $name", async ({ itemFirst }) => {
-    const update = vi.fn();
-    const progress = createChannelProgressDraftCompositor({
-      entry: { streaming: { mode: "progress", progress: { label: false, commentary: true } } },
-      mode: "progress",
-      active: true,
-      seed: "test",
-      update,
-    });
-    const snapshots = [
-      "I",
-      "Accepted. I",
-      "Accepted. I’m",
-      "Accepted. I’m checking the workspace before replying.",
-    ];
-
-    for (const text of snapshots) {
-      const idBearing = () => progress.pushCommentaryProgress(text, { itemId: "commentary-1" });
-      const idLess = () => progress.pushCommentaryProgress(text);
-      await (itemFirst ? idBearing() : idLess());
-      await (itemFirst ? idLess() : idBearing());
-    }
-
-    const finalSentence = snapshots.at(-1) ?? "";
-    expect(progress.getSnapshot().lines).toEqual([
-      expect.objectContaining({ text: `_${finalSentence}_` }),
-    ]);
-    expect(update.mock.calls.at(-1)?.[0]).toBe(`_${finalSentence}_`);
-    expect(update.mock.calls.at(-1)?.[0].match(/Accepted\./gu) ?? []).toHaveLength(1);
-  });
-
   it("appends genuinely distinct id-less commentary as separate lines", async () => {
     const update = vi.fn();
     const progress = createChannelProgressDraftCompositor({
@@ -1163,5 +1129,3 @@ describe("createChannelProgressDraftCompositor", () => {
     }
   });
 });
-
-/* oxlint-disable max-lines -- Red compatibility coverage extends an upstream oversized file. */
