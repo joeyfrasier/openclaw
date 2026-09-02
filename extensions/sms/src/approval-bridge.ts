@@ -135,8 +135,21 @@ function buildSmsApprovalPendingPayload(params: {
 }
 
 function buildSmsApprovalResolvedPayload(params: {
+  cfg: OpenClawConfig;
   resolved: { id: string; decision: "allow-once" | "allow-always" | "deny" };
+  target: { channel: string; to: string; accountId?: string | null };
 }): ReplyPayload {
+  // Re-check ownership at final delivery: a recipient authorized for the
+  // pending request may have been removed before another surface resolves it.
+  if (
+    !isSmsApprovalOwner({
+      cfg: params.cfg,
+      accountId: params.target.accountId,
+      senderId: params.target.to,
+    })
+  ) {
+    throw new Error("SMS_APPROVAL_TARGET_NOT_AUTHORIZED");
+  }
   const decision =
     params.resolved.decision === "allow-once"
       ? "allowed once"

@@ -38,10 +38,13 @@ export function readGatewayPersistedRuntimePluginSelections(
     { defaultAgentId: resolveSessionStoreCompatibilityAgentId(cfg) },
   );
   for (const target of targets) {
-    const result = readPersistedLockedRuntimeSelectionsReadOnly({
-      agentId: target.agentId,
-      storePath: target.storePath,
-    });
+    const result = readPersistedLockedRuntimeSelectionsReadOnly(
+      {
+        agentId: target.agentId,
+        storePath: target.storePath,
+      },
+      { configuredAgentIds },
+    );
     if (result.status === "blocked") {
       throw new Error(
         `persisted locked runtime selection scan blocked for agent ${target.agentId}: ${result.reason}`,

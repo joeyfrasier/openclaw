@@ -9,6 +9,11 @@ import {
   prepareSqliteReadOnlyLocationSyncInProcess,
 } from "../infra/sqlite-readonly-location.js";
 import {
+  isArtifactPreservingSqliteReadLocationsActive,
+  withArtifactPreservingSqliteReadLocations,
+  withArtifactPreservingSqliteReadLocationSync,
+} from "../infra/sqlite-readonly-operations.js";
+import {
   createNewerSqliteSchemaVersionError,
   readSqliteUserVersion,
 } from "../infra/sqlite-user-version.js";
@@ -33,7 +38,9 @@ const artifactPreservingReadScope = new AsyncLocalStorage<boolean>();
 export async function withArtifactPreservingOpenClawStateDatabaseReads<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
-  return await artifactPreservingReadScope.run(true, operation);
+  return await withArtifactPreservingSqliteReadLocations(
+    async () => await artifactPreservingReadScope.run(true, operation),
+  );
 }
 
 function resolveReadOnlyPath(options: OpenClawStateDatabaseOptions): string {
@@ -168,6 +175,16 @@ export function withExistingOpenClawStateDatabaseArtifactPreservingReadOnly<T>(
   const existingPath = existingPathOrUndefined(pathname);
   if (existingPath === undefined) {
     return undefined;
+  }
+  if (isArtifactPreservingSqliteReadLocationsActive()) {
+    return withArtifactPreservingSqliteReadLocationSync(existingPath, (location) =>
+      withFreshOpenClawStateDatabaseReadOnly(
+        operation,
+        { ...options, path: existingPath },
+        existingPath,
+        location,
+      ),
+    );
   }
   // In-process preparation is safe only when this process holds no writable
   // handle. Otherwise closing the snapshot source can drop the writer's POSIX locks.

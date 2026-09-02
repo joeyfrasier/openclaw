@@ -261,4 +261,25 @@ describe("SMS approval bridge", () => {
     expect(payload?.text).toContain("resolved on another approval surface");
     expect(payload?.text).not.toContain("denied");
   });
+
+  it("refuses a resolved notification after the pending recipient loses ownership", () => {
+    const renderResolved = smsApprovalCapability.render?.exec?.buildResolvedPayload;
+    const cfg = createConfig();
+    if (cfg.channels?.sms && "execApprovals" in cfg.channels.sms) {
+      cfg.channels.sms.execApprovals = { enabled: true, approvers: [] };
+    }
+
+    expect(() =>
+      renderResolved?.({
+        cfg,
+        target: { channel: "sms", to: OWNER, accountId: "default" },
+        resolved: {
+          id: "abcdefab-1234-5678-9abc-123456789abc",
+          decision: "deny",
+          ts: 1_000,
+          request: createRequest().request,
+        },
+      }),
+    ).toThrow("SMS_APPROVAL_TARGET_NOT_AUTHORIZED");
+  });
 });

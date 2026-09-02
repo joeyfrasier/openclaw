@@ -18,8 +18,10 @@ vi.mock("../infra/sqlite-readonly-location.js", async (importOriginal) => {
   };
 });
 
-const { withExistingOpenClawStateDatabaseArtifactPreservingReadOnly } =
-  await import("./openclaw-state-db-readonly.js");
+const {
+  withArtifactPreservingOpenClawStateDatabaseReads,
+  withExistingOpenClawStateDatabaseArtifactPreservingReadOnly,
+} = await import("./openclaw-state-db-readonly.js");
 const { closeOpenClawStateDatabaseForTest, openOpenClawStateDatabase } =
   await import("./openclaw-state-db.js");
 
@@ -79,6 +81,25 @@ describe("artifact-preserving shared-state reads", () => {
       expect(
         withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(() => "read", options),
       ).toBe("read");
+      expect(snapshotMocks.isolated).toHaveBeenCalledOnce();
+      expect(snapshotMocks.inProcess).not.toHaveBeenCalled();
+    });
+  });
+
+  it("reuses one shared-state snapshot throughout an artifact-preserving epoch", async () => {
+    await withTempDir("openclaw-state-readonly-epoch-", async (stateDir) => {
+      const options = createOptions(stateDir);
+      openOpenClawStateDatabase(options);
+
+      await withArtifactPreservingOpenClawStateDatabaseReads(async () => {
+        expect(
+          withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(() => "first", options),
+        ).toBe("first");
+        expect(
+          withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(() => "second", options),
+        ).toBe("second");
+      });
+
       expect(snapshotMocks.isolated).toHaveBeenCalledOnce();
       expect(snapshotMocks.inProcess).not.toHaveBeenCalled();
     });

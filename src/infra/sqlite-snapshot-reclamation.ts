@@ -4,8 +4,19 @@ import path from "node:path";
 const SQLITE_SNAPSHOT_STAGING_PREFIX = "openclaw-sqlite-readonly-";
 const SQLITE_SNAPSHOT_DIRECTORY_PATTERN =
   /^openclaw-sqlite-readonly-([1-9][0-9]*)-[A-Za-z0-9_-]+$/u;
-const SQLITE_SNAPSHOT_MEMBER_PATTERN =
-  /^(?:database\.sqlite(?:-(?:journal|shm|wal))?|first|second)$/u;
+const SQLITE_SNAPSHOT_FILE_PATHS = new Set([
+  "database.sqlite",
+  "database.sqlite-journal",
+  "database.sqlite-shm",
+  "database.sqlite-wal",
+  "first",
+  "second",
+  "openclaw-state/state/openclaw.sqlite",
+  "openclaw-state/state/openclaw.sqlite-journal",
+  "openclaw-state/state/openclaw.sqlite-shm",
+  "openclaw-state/state/openclaw.sqlite-wal",
+]);
+const SQLITE_SNAPSHOT_DIRECTORY_PATHS = new Set(["openclaw-state", "openclaw-state/state"]);
 
 function isProcessAlive(pid: number): boolean {
   try {
@@ -32,17 +43,31 @@ function assertPrivateStaleSnapshotDirectory(directoryPath: string): void {
   ) {
     throw new Error(`Unsafe stale SQLite snapshot directory: ${directoryPath}`);
   }
-  for (const name of fs.readdirSync(directoryPath)) {
-    const memberPath = path.join(directoryPath, name);
-    const member = fs.lstatSync(memberPath);
-    if (
-      !SQLITE_SNAPSHOT_MEMBER_PATTERN.test(name) ||
-      !member.isFile() ||
-      member.isSymbolicLink() ||
-      (process.platform !== "win32" &&
-        (currentUid === undefined || member.uid !== currentUid || (member.mode & 0o077) !== 0))
-    ) {
-      throw new Error(`Unsafe stale SQLite snapshot member: ${memberPath}`);
+  const pending = [{ absolute: directoryPath, relative: "" }];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) {
+      break;
+    }
+    for (const name of fs.readdirSync(current.absolute).toSorted()) {
+      const memberPath = path.join(current.absolute, name);
+      const relativePath = current.relative ? `${current.relative}/${name}` : name;
+      const member = fs.lstatSync(memberPath);
+      const privateOwner =
+        process.platform === "win32" ||
+        (currentUid !== undefined && member.uid === currentUid && (member.mode & 0o077) === 0);
+      if (
+        member.isSymbolicLink() ||
+        !privateOwner ||
+        (!member.isFile() && !member.isDirectory()) ||
+        (member.isFile() && !SQLITE_SNAPSHOT_FILE_PATHS.has(relativePath)) ||
+        (member.isDirectory() && !SQLITE_SNAPSHOT_DIRECTORY_PATHS.has(relativePath))
+      ) {
+        throw new Error(`Unsafe stale SQLite snapshot member: ${memberPath}`);
+      }
+      if (member.isDirectory()) {
+        pending.push({ absolute: memberPath, relative: relativePath });
+      }
     }
   }
 }

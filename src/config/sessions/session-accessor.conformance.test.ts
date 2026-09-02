@@ -1328,6 +1328,51 @@ describe("sqlite session normalization", () => {
     });
   });
 
+  it("skips malformed locked runtime state owned by a retired configured agent", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    const database = openOpenClawAgentDatabase({ agentId: "main", env, path: paths.sqlitePath });
+    database.db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      for (const owner of ["aaa-retired", "bbb-retired"]) {
+        const stagedKey = `agent:main:${owner}-malformed-runtime`;
+        const sessionKey = `agent:${owner}:malformed-runtime`;
+        await upsertSessionEntryCore(
+          { ...baseScope, sessionKey: stagedKey },
+          {
+            agentHarnessId: "codex",
+            model: "gpt-5.5",
+            modelProvider: "openai",
+            modelSelectionLocked: true,
+            sessionId: `${owner}-malformed-runtime-session`,
+            updatedAt: 10,
+          },
+        );
+        database.db
+          .prepare("UPDATE session_windows SET session_key = ? WHERE session_key = ?")
+          .run(sessionKey, stagedKey);
+        database.db
+          .prepare("UPDATE session_nodes SET session_key = ?, entry_json = ? WHERE session_key = ?")
+          .run(sessionKey, "{", stagedKey);
+      }
+    } finally {
+      database.db.exec("PRAGMA foreign_keys = ON");
+    }
+    expect(
+      database.db
+        .prepare("SELECT session_key FROM session_nodes ORDER BY session_key")
+        .all()
+        .map((row) => row.session_key),
+    ).toEqual(["agent:aaa-retired:malformed-runtime", "agent:bbb-retired:malformed-runtime"]);
+
+    expect(
+      readPersistedLockedRuntimeSelectionsReadOnly(baseScope, {
+        configuredAgentIds: new Set(["main"]),
+        maxInspectedRows: 1,
+      }),
+    ).toEqual({ status: "complete", selections: [] });
+  });
+
   it("ignores an unrelated malformed row with no retained runtime projection", async () => {
     const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
     const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
@@ -1423,6 +1468,66 @@ describe("sqlite session normalization", () => {
       status: "blocked",
       reason: "row-limit",
       selections: [],
+    });
+  });
+
+  it("enforces the distinct external runtime bound separately for each owner", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };
+    const database = openOpenClawAgentDatabase({ agentId: "main", env, path: paths.sqlitePath });
+    for (const [owner, index] of [
+      ["main", 1],
+      ["worker", 2],
+    ] as const) {
+      const stagedKey = `agent:main:bounded-owner-${index}`;
+      const sessionKey = `agent:${owner}:bounded-${index}`;
+      await upsertSessionEntryCore(
+        { ...baseScope, sessionKey: stagedKey },
+        {
+          agentHarnessId: `runtime-${index}`,
+          model: `model-${index}`,
+          modelProvider: `provider-${index}`,
+          modelSelectionLocked: true,
+          sessionId: `bounded-owner-session-${index}`,
+          updatedAt: index,
+        },
+      );
+      if (sessionKey !== stagedKey) {
+        database.db.exec("PRAGMA foreign_keys = OFF");
+        try {
+          database.db
+            .prepare("UPDATE session_windows SET session_key = ? WHERE session_key = ?")
+            .run(sessionKey, stagedKey);
+          database.db
+            .prepare("UPDATE session_nodes SET session_key = ? WHERE session_key = ?")
+            .run(sessionKey, stagedKey);
+        } finally {
+          database.db.exec("PRAGMA foreign_keys = ON");
+        }
+      }
+    }
+
+    expect(
+      readPersistedLockedRuntimeSelectionsReadOnly(baseScope, {
+        configuredAgentIds: new Set(["main", "worker"]),
+        maxRows: 1,
+      }),
+    ).toEqual({
+      status: "complete",
+      selections: [
+        {
+          modelId: "model-1",
+          provider: "provider-1",
+          runtime: "runtime-1",
+          sessionKey: "agent:main:bounded-1",
+        },
+        {
+          modelId: "model-2",
+          provider: "provider-2",
+          runtime: "runtime-2",
+          sessionKey: "agent:worker:bounded-2",
+        },
+      ],
     });
   });
 

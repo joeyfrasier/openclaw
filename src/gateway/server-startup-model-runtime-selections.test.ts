@@ -95,5 +95,9 @@ describe("gateway persisted runtime plugin selections", () => {
     expect(readGatewayPersistedRuntimePluginSelections({})).toEqual(new Map());
     expect(mocks.resolveTargets).toHaveBeenCalledTimes(1);
     expect(mocks.resolveTargets).toHaveBeenCalledWith({}, "main");
+    expect(mocks.readSelections).toHaveBeenCalledWith(
+      { agentId: "main", storePath: "/tmp/main-sessions.json" },
+      { configuredAgentIds: new Set(["main"]) },
+    );
   });
 });
