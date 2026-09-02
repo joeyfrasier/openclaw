@@ -358,7 +358,10 @@ function createStableReadOnlyCopyInTempDirectory(
   let tempDir = existingTempDir;
   const stagingRoot = tempDir ? path.dirname(tempDir) : resolvePrivateSqliteSnapshotStagingRoot();
   try {
-    tempDir ??= createPrivateSqliteTempDirectorySync(stagingRoot, SQLITE_SNAPSHOT_STAGING_PREFIX);
+    tempDir ??= createPrivateSqliteTempDirectorySync(
+      stagingRoot,
+      sqliteSnapshotStagingPrefix(process.pid),
+    );
     const snapshotPath = path.join(tempDir, "database.sqlite");
     const firstPath = path.join(tempDir, "first");
     const secondPath = path.join(tempDir, "second");
