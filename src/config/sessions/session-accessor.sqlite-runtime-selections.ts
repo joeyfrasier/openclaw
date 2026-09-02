@@ -100,15 +100,14 @@ export function readPersistedLockedRuntimeSelectionsReadOnly(
         // retention volume. Invalid projected rows remain candidates so the read
         // still fails closed instead of hiding malformed external ownership.
         .where(
-          sql<boolean>`current_window.agent_harness_id IS NOT NULL
-            AND (
-              session_nodes.entry_valid <> 1
-              OR CASE
-                WHEN json_valid(session_nodes.entry_json)
-                  THEN json_extract(session_nodes.entry_json, '$.modelSelectionLocked') = 1
-                ELSE 1
-              END
-            )`,
+          sql<boolean>`(
+            session_nodes.entry_valid <> 1
+            AND current_window.agent_harness_id IS NOT NULL
+          ) OR CASE
+            WHEN json_valid(session_nodes.entry_json)
+              THEN json_extract(session_nodes.entry_json, '$.modelSelectionLocked') = 1
+            ELSE current_window.agent_harness_id IS NOT NULL
+          END`,
         )
         .orderBy("session_nodes.session_key", "asc")
         .limit(maxInspectedRows + 1),

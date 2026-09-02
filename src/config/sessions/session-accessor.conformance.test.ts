@@ -1300,6 +1300,34 @@ describe("sqlite session normalization", () => {
     });
   });
 
+  it("blocks a locked external runtime when its retained projection is missing", async () => {
+    const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
+    const scope = {
+      agentId: "main",
+      env,
+      sessionKey: "agent:main:locked-without-projection",
+      storePath: paths.sqlitePath,
+    };
+    await upsertSessionEntryCore(scope, {
+      agentHarnessId: "codex",
+      model: "gpt-5.5",
+      modelProvider: "openai",
+      modelSelectionLocked: true,
+      sessionId: "locked-without-projection-session",
+      updatedAt: 10,
+    });
+    const database = openOpenClawAgentDatabase({ agentId: "main", env, path: paths.sqlitePath });
+    database.db
+      .prepare("UPDATE session_windows SET agent_harness_id = NULL WHERE session_key = ?")
+      .run(scope.sessionKey);
+
+    expect(readPersistedLockedRuntimeSelectionsReadOnly(scope)).toEqual({
+      status: "blocked",
+      reason: "invalid-entry",
+      selections: [],
+    });
+  });
+
   it("ignores an unrelated malformed row with no retained runtime projection", async () => {
     const env = { ...process.env, OPENCLAW_STATE_DIR: paths.stateDir };
     const baseScope = { agentId: "main", env, storePath: paths.sqlitePath };

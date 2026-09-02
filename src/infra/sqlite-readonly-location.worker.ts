@@ -14,7 +14,13 @@ function formatWorkerError(error: unknown): string {
 async function runWorker(): Promise<void> {
   const mode = process.argv[3];
   const pathname = process.argv[4];
-  if ((mode !== "sync" && mode !== "async") || !pathname) {
+  const ownerPid = Number(process.argv[5]);
+  if (
+    (mode !== "sync" && mode !== "async") ||
+    !pathname ||
+    !Number.isSafeInteger(ownerPid) ||
+    ownerPid < 1
+  ) {
     process.exitCode = 1;
     process.stdout.write(
       JSON.stringify({
@@ -27,8 +33,8 @@ async function runWorker(): Promise<void> {
   try {
     const prepared =
       mode === "sync"
-        ? prepareSqliteReadOnlyLocationSyncInProcess(pathname)
-        : await prepareSqliteReadOnlyLocationInProcess(pathname);
+        ? prepareSqliteReadOnlyLocationSyncInProcess(pathname, ownerPid)
+        : await prepareSqliteReadOnlyLocationInProcess(pathname, ownerPid);
     process.stdout.write(JSON.stringify({ ok: true, location: prepared.location }));
   } catch (error) {
     process.exitCode = 1;

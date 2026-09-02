@@ -1208,7 +1208,12 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
         const database = new DatabaseSync(databasePath);
         database.exec("CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES ('native work');");
         database.close();
-        const childArgs = ["--openclaw-sqlite-readonly-child", "async", databasePath];
+        const childArgs = [
+          "--openclaw-sqlite-readonly-child",
+          "async",
+          databasePath,
+          String(process.pid),
+        ];
         const stale = await node([
           path.join(fixture, "dist/infra/sqlite-readonly-location.worker.js"),
           ...childArgs,

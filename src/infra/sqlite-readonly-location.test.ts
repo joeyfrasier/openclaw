@@ -157,6 +157,74 @@ describe("prepareSqliteReadOnlyLocation", () => {
     });
   });
 
+  it.runIf(process.platform !== "win32")(
+    "reclaims only validated private snapshots whose process owner exited",
+    async () => {
+      const cacheRoot = tempDirs.make("openclaw-sqlite-snapshot-reclaim-");
+      const stagingRoot = path.join(cacheRoot, "openclaw");
+      fs.mkdirSync(stagingRoot, { mode: 0o700 });
+      const exited = spawnSync(process.execPath, ["-e", ""]);
+      expect(exited.status).toBe(0);
+      expect(exited.pid).toBeTypeOf("number");
+      const stale = path.join(stagingRoot, `openclaw-sqlite-readonly-${exited.pid}-stale-fixture`);
+      const active = path.join(
+        stagingRoot,
+        `openclaw-sqlite-readonly-${process.pid}-active-fixture`,
+      );
+      for (const directory of [stale, active]) {
+        fs.mkdirSync(directory, { mode: 0o700 });
+        fs.writeFileSync(path.join(directory, "database.sqlite"), "synthetic-credential-row", {
+          mode: 0o600,
+        });
+      }
+      const sqlite = requireNodeSqlite();
+      const databasePath = createTempDatabasePath();
+      const database = new sqlite.DatabaseSync(databasePath);
+      database.exec("CREATE TABLE probe (value TEXT);");
+      database.close();
+
+      await withEnvAsync({ XDG_CACHE_HOME: cacheRoot }, async () => {
+        const prepared = prepareSqliteReadOnlyLocationSyncInProcess(databasePath);
+        try {
+          expect(fs.existsSync(stale)).toBe(false);
+          expect(fs.existsSync(active)).toBe(true);
+        } finally {
+          expect(prepared.cleanup()).toBe(true);
+          fs.rmSync(active, { recursive: true });
+        }
+      });
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "refuses to reclaim an unsafe stale snapshot tree",
+    async () => {
+      const cacheRoot = tempDirs.make("openclaw-sqlite-snapshot-unsafe-reclaim-");
+      const stagingRoot = path.join(cacheRoot, "openclaw");
+      fs.mkdirSync(stagingRoot, { mode: 0o700 });
+      const exited = spawnSync(process.execPath, ["-e", ""]);
+      expect(exited.status).toBe(0);
+      const stale = path.join(stagingRoot, `openclaw-sqlite-readonly-${exited.pid}-unsafe-fixture`);
+      fs.mkdirSync(stale, { mode: 0o700 });
+      const outside = path.join(cacheRoot, "outside.sqlite");
+      fs.writeFileSync(outside, "must-not-be-removed", { mode: 0o600 });
+      fs.symlinkSync(outside, path.join(stale, "database.sqlite"));
+      const sqlite = requireNodeSqlite();
+      const databasePath = createTempDatabasePath();
+      const database = new sqlite.DatabaseSync(databasePath);
+      database.exec("CREATE TABLE probe (value TEXT);");
+      database.close();
+
+      await withEnvAsync({ XDG_CACHE_HOME: cacheRoot }, async () => {
+        expect(() => prepareSqliteReadOnlyLocationSyncInProcess(databasePath)).toThrow(
+          /Unsafe stale SQLite snapshot member/u,
+        );
+      });
+      expect(fs.readFileSync(outside, "utf8")).toBe("must-not-be-removed");
+      expect(fs.lstatSync(path.join(stale, "database.sqlite")).isSymbolicLink()).toBe(true);
+    },
+  );
+
   it("avoids an exhausted OS temp root when a private cache can hold the snapshot", async () => {
     const cacheRoot = tempDirs.make("openclaw-sqlite-snapshot-quota-");
     const sqlite = requireNodeSqlite();
