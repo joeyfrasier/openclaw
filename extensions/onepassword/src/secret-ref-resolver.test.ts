@@ -197,6 +197,17 @@ afterEach(() => {
 });
 
 describe("plugin manifest", () => {
+  it("keeps the copied resolver free of bare root-package imports", () => {
+    const resolverSource = fs.readFileSync(sourceResolverPath, "utf8");
+    const opPathSource = fs.readFileSync(sourceStaticAssetPaths[1], "utf8");
+    expect(resolverSource).not.toContain('from "openclaw/plugin-sdk/');
+    expect(opPathSource).not.toContain('from "openclaw/plugin-sdk/');
+    expect(resolverSource).toContain('importRootSdkRuntime("error-runtime.js")');
+    expect(resolverSource).toContain('importRootSdkRuntime("process-runtime.js")');
+    expect(resolverSource).toContain("return import(candidate.href)");
+    expect(opPathSource).toContain("return import(candidate.href)");
+  });
+
   it("declares the 1Password resolver as a managed Node SecretRef preset", () => {
     const resolverSource = fs.readFileSync(sourceResolverPath, "utf8");
     const readIntegerConstant = (name: string): number => {

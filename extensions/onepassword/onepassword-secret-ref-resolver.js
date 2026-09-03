@@ -3,11 +3,33 @@
 import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_SECRET_FILE_MAX_BYTES, tryReadSecretFileSync } from "@openclaw/fs-safe/secret";
-import { coerceErrorMessage as errorMessage } from "openclaw/plugin-sdk/error-runtime";
-import { runCommandBuffered } from "openclaw/plugin-sdk/process-runtime";
+// This file is copied into the installed extension as a standalone static asset.
+// Bare self-package imports do not resolve from the nested @openclaw/onepassword
+// package scope. Resolve the root SDK from each supported source/build layout at
+// runtime; using a computed import also keeps the pre-dist build graph valid.
 import { resolveTrustedOnePasswordCli } from "./onepassword-op-path.js";
 import { resolveOnePasswordSecretReference } from "./onepassword-secret-id.js";
+
+async function importRootSdkRuntime(fileName) {
+  const candidates = [
+    new URL(`../../dist/plugin-sdk/${fileName}`, import.meta.url),
+    new URL(`../../plugin-sdk/${fileName}`, import.meta.url),
+    new URL(`../../../dist/plugin-sdk/${fileName}`, import.meta.url),
+  ];
+  for (const candidate of candidates) {
+    if (fsSync.existsSync(fileURLToPath(candidate))) {
+      return import(candidate.href);
+    }
+  }
+  throw new Error(`OpenClaw plugin SDK runtime is unavailable: ${fileName}`);
+}
+
+const [{ coerceErrorMessage: errorMessage }, { runCommandBuffered }] = await Promise.all([
+  importRootSdkRuntime("error-runtime.js"),
+  importRootSdkRuntime("process-runtime.js"),
+]);
 
 const OP_READ_CONCURRENCY = 4;
 const OP_READ_TIMEOUT_MS = 7_000;

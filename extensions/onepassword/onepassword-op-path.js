@@ -1,5 +1,22 @@
+import fs from "node:fs";
 import path from "node:path";
-import { pluginSecretRefSetup } from "openclaw/plugin-sdk/secret-ref-runtime";
+import { fileURLToPath } from "node:url";
+
+async function importSecretRefRuntime() {
+  const candidates = [
+    new URL("../../dist/plugin-sdk/secret-ref-runtime.js", import.meta.url),
+    new URL("../../plugin-sdk/secret-ref-runtime.js", import.meta.url),
+    new URL("../../../dist/plugin-sdk/secret-ref-runtime.js", import.meta.url),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return import(candidate.href);
+    }
+  }
+  throw new Error("OpenClaw SecretRef runtime is unavailable");
+}
+
+const { pluginSecretRefSetup } = await importSecretRefRuntime();
 
 function errorCode(error) {
   return error && typeof error === "object" && "code" in error ? error.code : undefined;
