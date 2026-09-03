@@ -16,15 +16,15 @@ async function importSecretRefRuntime() {
   throw new Error("OpenClaw SecretRef runtime is unavailable");
 }
 
-const { pluginSecretRefSetup } = await importSecretRefRuntime();
-
 function errorCode(error) {
   return error && typeof error === "object" && "code" in error ? error.code : undefined;
 }
 
-const resolveTrustedExecutablePath = pluginSecretRefSetup.resolveTrustedExecutablePath;
-
 export async function resolveTrustedOnePasswordCli(options = {}) {
+  // Keep this SDK import lazy. The helper is also bundled into the normal
+  // 1Password plugin graph, where top-level await would invalidate index.js.
+  const { pluginSecretRefSetup } = await importSecretRefRuntime();
+  const resolveTrustedExecutablePath = pluginSecretRefSetup.resolveTrustedExecutablePath;
   const configuredPath = options.configuredPath?.trim();
   if (configuredPath && !path.isAbsolute(configuredPath)) {
     throw new Error(`1Password CLI path must be absolute: ${configuredPath}`);
