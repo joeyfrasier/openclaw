@@ -16,6 +16,7 @@ const DESCRIBABLE_SELECTOR =
 const HOVER_DELAY = 150;
 const SKIP_DELAY = 300;
 const RICH_CONTENT_CLOSE_DELAY = 100;
+const ACTIVE_TOOLTIP_DOCUMENT_STATE = Symbol.for("openclaw.active-tooltip-document-state");
 
 let nextTooltipId = 0;
 
@@ -94,13 +95,18 @@ class TooltipProvider extends OpenClawLitElement {
 }
 
 class Tooltip extends OpenClawLitElement {
-  private static readonly activeByDocument = new WeakMap<Document, Tooltip>();
+  // Multiple evaluated copies of the UI module can share one browser document
+  // (for example, plugin bundles and Vitest projects). Store the active tooltip
+  // on that document so every copy arbitrates Escape against the same instance.
+  private static activeForDocument(ownerDocument: Document): Tooltip | undefined {
+    return Reflect.get(ownerDocument, ACTIVE_TOOLTIP_DOCUMENT_STATE) as Tooltip | undefined;
+  }
 
   static readonly consumeEscape = (event: KeyboardEvent, ownerDocument: Document): boolean => {
     if (event.key !== "Escape" || event.defaultPrevented) {
       return false;
     }
-    const active = Tooltip.activeByDocument.get(ownerDocument);
+    const active = Tooltip.activeForDocument(ownerDocument);
     if (!active) {
       return false;
     }
@@ -112,7 +118,7 @@ class Tooltip extends OpenClawLitElement {
   };
 
   static closeForProvider(provider: TooltipProvider) {
-    const active = Tooltip.activeByDocument.get(provider.ownerDocument);
+    const active = Tooltip.activeForDocument(provider.ownerDocument);
     if (active?.tooltipProvider === provider) {
       active.close();
     }
@@ -436,13 +442,13 @@ class Tooltip extends OpenClawLitElement {
       return;
     }
     this.clearTimers(false);
-    const active = Tooltip.activeByDocument.get(this.ownerDocument);
+    const active = Tooltip.activeForDocument(this.ownerDocument);
     if (active && active !== this) {
       active.close();
     }
     // Portaled menus and modal roots can sit outside the provider. The document
     // owns exclusivity; providers configure timing and input modality only.
-    Tooltip.activeByDocument.set(this.ownerDocument, this);
+    Reflect.set(this.ownerDocument, ACTIVE_TOOLTIP_DOCUMENT_STATE, this);
     this.tooltipProvider?.openTooltip();
     this.syncDescription();
     tooltip.open = true;
@@ -479,8 +485,8 @@ class Tooltip extends OpenClawLitElement {
     if (this.webAwesomeTooltip?.open) {
       this.webAwesomeTooltip.open = false;
     }
-    if (Tooltip.activeByDocument.get(this.ownerDocument) === this) {
-      Tooltip.activeByDocument.delete(this.ownerDocument);
+    if (Tooltip.activeForDocument(this.ownerDocument) === this) {
+      Reflect.deleteProperty(this.ownerDocument, ACTIVE_TOOLTIP_DOCUMENT_STATE);
       this.tooltipProvider?.closeTooltip();
     }
   }

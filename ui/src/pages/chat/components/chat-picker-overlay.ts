@@ -4,12 +4,35 @@ import { consumeTooltipEscape } from "../../../components/tooltip.ts";
 const MOBILE_COMPOSER_OVERLAY_QUERY =
   "(max-width: 640px), (max-width: 932px) and (max-height: 500px) and (orientation: landscape)";
 
-const pointerOpenedDropdowns = new WeakSet<HTMLElement>();
+const CHAT_COMPOSER_PICKER_DOCUMENT_STATE = Symbol.for(
+  "openclaw.chat-composer-picker-document-state",
+);
 const POINTER_RESTORED_FOCUS_ATTRIBUTE = "data-chat-pointer-restored-focus";
 const POINTER_OPENED_PICKER_ATTRIBUTE = "data-chat-pointer-opened-picker";
 const CHAT_COMPOSER_DISMISS_INVOCATIONS_EVENT = "openclaw-composer-dismiss-invocations";
 
-let composerPickerDismissalInstalled = false;
+type ChatComposerPickerDocumentState = {
+  dismissalInstalled: boolean;
+  pointerOpenedDropdowns: WeakSet<HTMLElement>;
+};
+
+function chatComposerPickerDocumentState(ownerDocument: Document): ChatComposerPickerDocumentState {
+  const existing = Reflect.get(ownerDocument, CHAT_COMPOSER_PICKER_DOCUMENT_STATE) as
+    | ChatComposerPickerDocumentState
+    | undefined;
+  if (existing) {
+    return existing;
+  }
+  const created: ChatComposerPickerDocumentState = {
+    dismissalInstalled: false,
+    pointerOpenedDropdowns: new WeakSet<HTMLElement>(),
+  };
+  Object.defineProperty(ownerDocument, CHAT_COMPOSER_PICKER_DOCUMENT_STATE, {
+    configurable: true,
+    value: created,
+  });
+  return created;
+}
 
 function composerPickerIsOpen(picker: HTMLElement): boolean {
   if (picker instanceof HTMLDetailsElement) {
@@ -27,7 +50,7 @@ function openChatComposerPickers(root: ParentNode = document): HTMLElement[] {
 }
 
 function closeComposerPicker(picker: HTMLElement): void {
-  pointerOpenedDropdowns.delete(picker);
+  chatComposerPickerDocumentState(picker.ownerDocument).pointerOpenedDropdowns.delete(picker);
   picker.removeAttribute(POINTER_OPENED_PICKER_ATTRIBUTE);
   if (picker instanceof HTMLDetailsElement) {
     picker.open = false;
@@ -93,10 +116,14 @@ function dismissChatComposerPickersOnEscape(event: KeyboardEvent): void {
 }
 
 export function ensureChatComposerPickerDismissal(): void {
-  if (composerPickerDismissalInstalled || typeof document === "undefined") {
+  if (typeof document === "undefined") {
     return;
   }
-  composerPickerDismissalInstalled = true;
+  const state = chatComposerPickerDocumentState(document);
+  if (state.dismissalInstalled) {
+    return;
+  }
+  state.dismissalInstalled = true;
   document.addEventListener("pointerdown", dismissChatComposerPickersOutside, true);
   // Window capture observes the open picker before component Escape handlers
   // mutate details.open and erase the return-focus owner.
@@ -111,7 +138,9 @@ export function ensureChatComposerPickerDismissal(): void {
             node instanceof HTMLElement && node.localName === "wa-dropdown",
         );
       if (dropdown) {
-        pointerOpenedDropdowns.delete(dropdown);
+        chatComposerPickerDocumentState(dropdown.ownerDocument).pointerOpenedDropdowns.delete(
+          dropdown,
+        );
         dropdown.removeAttribute(POINTER_OPENED_PICKER_ATTRIBUTE);
       }
     },
@@ -142,7 +171,9 @@ export function handleChatComposerDetailsToggle(event: Event): void {
 export function handleChatComposerDropdownShow(event: Event): void {
   const dropdown = event.target;
   if (dropdown instanceof HTMLElement && dropdown.localName === "wa-dropdown") {
-    if (!pointerOpenedDropdowns.has(dropdown)) {
+    if (
+      !chatComposerPickerDocumentState(dropdown.ownerDocument).pointerOpenedDropdowns.has(dropdown)
+    ) {
       dropdown.removeAttribute(POINTER_OPENED_PICKER_ATTRIBUTE);
     }
     ensureChatComposerPickerDismissal();
@@ -158,7 +189,7 @@ export function markPointerOpenedChatComposerDropdown(event: PointerEvent): void
         node instanceof HTMLElement && node.localName === "wa-dropdown",
     );
   if (dropdown) {
-    pointerOpenedDropdowns.add(dropdown);
+    chatComposerPickerDocumentState(dropdown.ownerDocument).pointerOpenedDropdowns.add(dropdown);
     dropdown.setAttribute(POINTER_OPENED_PICKER_ATTRIBUTE, "");
   }
 }
@@ -171,7 +202,7 @@ export function restorePointerOpenedChatComposerTrigger(event: Event): void {
   if (
     dropdown instanceof HTMLElement &&
     dropdown.localName === "wa-dropdown" &&
-    pointerOpenedDropdowns.delete(dropdown)
+    chatComposerPickerDocumentState(dropdown.ownerDocument).pointerOpenedDropdowns.delete(dropdown)
   ) {
     const trigger = pickerTrigger(dropdown);
     if (!trigger) {
