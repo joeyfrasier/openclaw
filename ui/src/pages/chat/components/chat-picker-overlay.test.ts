@@ -128,4 +128,64 @@ describe("chat picker overlay", () => {
     expect(effortPicker.open).toBe(false);
     expect(document.activeElement).toBe(effortTrigger);
   });
+
+  it("shares listeners and pointer state across module copies in the owner document", async () => {
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    const ownerDocument = frame.contentDocument;
+    const ownerWindow = frame.contentWindow;
+    if (!ownerDocument || !ownerWindow) {
+      throw new Error("Expected iframe document and window");
+    }
+    const documentListenerSpy = vi.spyOn(ownerDocument, "addEventListener");
+    const windowListenerSpy = vi.spyOn(ownerWindow, "addEventListener");
+
+    ensureChatComposerPickerDismissal(ownerDocument);
+    vi.resetModules();
+    const duplicateModule = await import("./chat-picker-overlay.ts");
+    duplicateModule.ensureChatComposerPickerDismissal(ownerDocument);
+
+    expect(
+      documentListenerSpy.mock.calls.filter(([eventName]) => eventName === "pointerdown"),
+    ).toHaveLength(1);
+    expect(
+      documentListenerSpy.mock.calls.filter(([eventName]) => eventName === "keydown"),
+    ).toHaveLength(1);
+    expect(
+      windowListenerSpy.mock.calls.filter(([eventName]) => eventName === "keydown"),
+    ).toHaveLength(1);
+
+    const composer = ownerDocument.createElement("div");
+    composer.className = "agent-chat__input";
+    const picker = ownerDocument.createElement("details");
+    const pickerTrigger = ownerDocument.createElement("summary");
+    const pickerField = ownerDocument.createElement("input");
+    picker.append(pickerTrigger, pickerField);
+    composer.append(picker);
+    ownerDocument.body.append(composer);
+    picker.open = true;
+    pickerField.focus();
+    pickerField.dispatchEvent(
+      new ownerWindow.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    expect(picker.open).toBe(false);
+    expect(ownerDocument.activeElement).toBe(pickerTrigger);
+
+    const dropdown = ownerDocument.createElement("wa-dropdown");
+    const dropdownTrigger = ownerDocument.createElement("button");
+    dropdownTrigger.slot = "trigger";
+    dropdown.append(dropdownTrigger);
+    ownerDocument.body.append(dropdown);
+    dropdown.addEventListener("pointerdown", markPointerOpenedChatComposerDropdown);
+    dropdownTrigger.dispatchEvent(
+      new ownerWindow.MouseEvent("pointerdown", { bubbles: true, composed: true }),
+    );
+    dropdown.addEventListener(
+      "wa-after-show",
+      duplicateModule.restorePointerOpenedChatComposerTrigger,
+    );
+    dropdown.dispatchEvent(new ownerWindow.Event("wa-after-show"));
+    expect(dropdownTrigger.hasAttribute("data-chat-pointer-restored-focus")).toBe(true);
+    expect(ownerDocument.activeElement).toBe(dropdownTrigger);
+  });
 });

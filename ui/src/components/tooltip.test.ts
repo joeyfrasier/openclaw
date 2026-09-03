@@ -420,6 +420,31 @@ describe("openclaw-tooltip", () => {
     expect(downstream).toHaveBeenCalledTimes(3);
   });
 
+  it("shares active tooltip ownership with a reevaluated module copy", async () => {
+    const activeTooltipState = Symbol.for("openclaw.active-tooltip-document-state");
+    const { tooltip, trigger } = createTooltip("Cross-copy hint");
+    document.body.append(tooltip);
+    await tooltip.updateComplete;
+    focusTrigger(trigger);
+    expect(Reflect.get(document, activeTooltipState)).toBe(tooltip);
+
+    vi.resetModules();
+    const duplicateModule = await import("./tooltip.ts");
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(duplicateModule.consumeTooltipEscape(escape, document)).toBe(true);
+    expectOpenCount(0);
+    expect(Reflect.get(document, activeTooltipState)).toBeUndefined();
+
+    focusTrigger(trigger);
+    expect(Reflect.get(document, activeTooltipState)).toBe(tooltip);
+    tooltip.remove();
+    expect(Reflect.get(document, activeTooltipState)).toBeUndefined();
+  });
+
   it("honors per-tooltip hover intent while keyboard focus stays immediate", async () => {
     const provider = createProvider();
     const { tooltip, trigger } = createRichTooltip("Intentional hovercard");

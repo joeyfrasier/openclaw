@@ -16,6 +16,21 @@ type ChatComposerPickerDocumentState = {
   pointerOpenedDropdowns: WeakSet<HTMLElement>;
 };
 
+function isRealmHTMLElement(value: unknown): value is HTMLElement {
+  if (!value || typeof value !== "object" || !("ownerDocument" in value)) {
+    return false;
+  }
+  const ownerDocument = (value as { ownerDocument?: Document | null }).ownerDocument;
+  const HTMLElementConstructor = ownerDocument?.defaultView?.HTMLElement;
+  return HTMLElementConstructor
+    ? value instanceof HTMLElementConstructor
+    : value instanceof HTMLElement;
+}
+
+function isDetailsPicker(picker: HTMLElement): picker is HTMLDetailsElement {
+  return picker.localName === "details";
+}
+
 function chatComposerPickerDocumentState(ownerDocument: Document): ChatComposerPickerDocumentState {
   const existing = Reflect.get(ownerDocument, CHAT_COMPOSER_PICKER_DOCUMENT_STATE) as
     | ChatComposerPickerDocumentState
@@ -35,13 +50,13 @@ function chatComposerPickerDocumentState(ownerDocument: Document): ChatComposerP
 }
 
 function composerPickerIsOpen(picker: HTMLElement): boolean {
-  if (picker instanceof HTMLDetailsElement) {
+  if (isDetailsPicker(picker)) {
     return picker.open;
   }
   return ("open" in picker && picker.open === true) || picker.hasAttribute("open");
 }
 
-function openChatComposerPickers(root: ParentNode = document): HTMLElement[] {
+function openChatComposerPickers(root: ParentNode): HTMLElement[] {
   return Array.from(
     root.querySelectorAll<HTMLElement>(
       ".agent-chat__input details, .agent-chat__input wa-dropdown",
@@ -52,7 +67,7 @@ function openChatComposerPickers(root: ParentNode = document): HTMLElement[] {
 function closeComposerPicker(picker: HTMLElement): void {
   chatComposerPickerDocumentState(picker.ownerDocument).pointerOpenedDropdowns.delete(picker);
   picker.removeAttribute(POINTER_OPENED_PICKER_ATTRIBUTE);
-  if (picker instanceof HTMLDetailsElement) {
+  if (isDetailsPicker(picker)) {
     picker.open = false;
   } else {
     if ("open" in picker) {
@@ -63,40 +78,46 @@ function closeComposerPicker(picker: HTMLElement): void {
 }
 
 function pickerTrigger(picker: HTMLElement): HTMLElement | null {
-  return picker instanceof HTMLDetailsElement
+  return isDetailsPicker(picker)
     ? picker.querySelector<HTMLElement>("summary")
     : picker.querySelector<HTMLElement>("[slot=trigger]");
 }
 
-function dismissChatComposerPickersOutside(event: PointerEvent): void {
+function dispatchDismissInvocations(composer: Element): void {
+  const EventConstructor = composer.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+  composer.dispatchEvent(new EventConstructor(CHAT_COMPOSER_DISMISS_INVOCATIONS_EVENT));
+}
+
+function dismissChatComposerPickersOutside(event: PointerEvent, ownerDocument: Document): void {
   const path = event.composedPath();
-  for (const picker of openChatComposerPickers()) {
+  for (const picker of openChatComposerPickers(ownerDocument)) {
     if (!path.includes(picker)) {
       closeComposerPicker(picker);
     }
   }
-  for (const menu of document.querySelectorAll<HTMLElement>(
+  for (const menu of ownerDocument.querySelectorAll<HTMLElement>(
     ".agent-chat__input > :is(.slash-menu, .skill-menu)",
   )) {
     if (!path.includes(menu)) {
-      menu
-        .closest(".agent-chat__input")
-        ?.dispatchEvent(new CustomEvent(CHAT_COMPOSER_DISMISS_INVOCATIONS_EVENT));
+      const composer = menu.closest(".agent-chat__input");
+      if (composer) {
+        dispatchDismissInvocations(composer);
+      }
     }
   }
 }
 
-function dismissChatComposerPickersOnEscape(event: KeyboardEvent): void {
+function dismissChatComposerPickersOnEscape(event: KeyboardEvent, ownerDocument: Document): void {
   if (
     event.defaultPrevented ||
-    consumeTooltipEscape(event, document) ||
+    consumeTooltipEscape(event, ownerDocument) ||
     event.key !== "Escape" ||
-    document.querySelector(".shell-nav[aria-modal='true']")
+    ownerDocument.querySelector(".shell-nav[aria-modal='true']")
   ) {
     return;
   }
-  const pickers = openChatComposerPickers();
-  const invocationComposer = document
+  const pickers = openChatComposerPickers(ownerDocument);
+  const invocationComposer = ownerDocument
     .querySelector<HTMLElement>(".agent-chat__input > :is(.slash-menu, .skill-menu)")
     ?.closest<HTMLElement>(".agent-chat__input");
   if (pickers.length === 0 && !invocationComposer) {
@@ -106,7 +127,9 @@ function dismissChatComposerPickersOnEscape(event: KeyboardEvent): void {
   event.stopPropagation();
   const lastPicker = pickers.at(-1);
   pickers.forEach(closeComposerPicker);
-  invocationComposer?.dispatchEvent(new CustomEvent(CHAT_COMPOSER_DISMISS_INVOCATIONS_EVENT));
+  if (invocationComposer) {
+    dispatchDismissInvocations(invocationComposer);
+  }
   invocationComposer
     ?.querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox > textarea")
     ?.focus({ preventScroll: true });
@@ -115,27 +138,37 @@ function dismissChatComposerPickersOnEscape(event: KeyboardEvent): void {
   }
 }
 
-export function ensureChatComposerPickerDismissal(): void {
-  if (typeof document === "undefined") {
+export function ensureChatComposerPickerDismissal(
+  ownerDocument: Document | undefined = typeof document === "undefined" ? undefined : document,
+): void {
+  if (!ownerDocument) {
     return;
   }
-  const state = chatComposerPickerDocumentState(document);
+  const state = chatComposerPickerDocumentState(ownerDocument);
   if (state.dismissalInstalled) {
     return;
   }
   state.dismissalInstalled = true;
-  document.addEventListener("pointerdown", dismissChatComposerPickersOutside, true);
+  ownerDocument.addEventListener(
+    "pointerdown",
+    (event) => dismissChatComposerPickersOutside(event, ownerDocument),
+    true,
+  );
   // Window capture observes the open picker before component Escape handlers
   // mutate details.open and erase the return-focus owner.
-  window.addEventListener("keydown", dismissChatComposerPickersOnEscape, true);
-  document.addEventListener(
+  ownerDocument.defaultView?.addEventListener(
+    "keydown",
+    (event) => dismissChatComposerPickersOnEscape(event, ownerDocument),
+    true,
+  );
+  ownerDocument.addEventListener(
     "keydown",
     (event) => {
       const dropdown = event
         .composedPath()
         .find(
           (node): node is HTMLElement =>
-            node instanceof HTMLElement && node.localName === "wa-dropdown",
+            isRealmHTMLElement(node) && node.localName === "wa-dropdown",
         );
       if (dropdown) {
         chatComposerPickerDocumentState(dropdown.ownerDocument).pointerOpenedDropdowns.delete(
@@ -162,21 +195,21 @@ function closeOtherChatComposerPickers(source: HTMLElement): void {
 
 export function handleChatComposerDetailsToggle(event: Event): void {
   const details = event.currentTarget;
-  if (details instanceof HTMLDetailsElement && details.open) {
-    ensureChatComposerPickerDismissal();
+  if (isRealmHTMLElement(details) && isDetailsPicker(details) && details.open) {
+    ensureChatComposerPickerDismissal(details.ownerDocument);
     closeOtherChatComposerPickers(details);
   }
 }
 
 export function handleChatComposerDropdownShow(event: Event): void {
   const dropdown = event.target;
-  if (dropdown instanceof HTMLElement && dropdown.localName === "wa-dropdown") {
+  if (isRealmHTMLElement(dropdown) && dropdown.localName === "wa-dropdown") {
     if (
       !chatComposerPickerDocumentState(dropdown.ownerDocument).pointerOpenedDropdowns.has(dropdown)
     ) {
       dropdown.removeAttribute(POINTER_OPENED_PICKER_ATTRIBUTE);
     }
-    ensureChatComposerPickerDismissal();
+    ensureChatComposerPickerDismissal(dropdown.ownerDocument);
     closeOtherChatComposerPickers(dropdown);
   }
 }
@@ -185,8 +218,7 @@ export function markPointerOpenedChatComposerDropdown(event: PointerEvent): void
   const dropdown = event
     .composedPath()
     .find(
-      (node): node is HTMLElement =>
-        node instanceof HTMLElement && node.localName === "wa-dropdown",
+      (node): node is HTMLElement => isRealmHTMLElement(node) && node.localName === "wa-dropdown",
     );
   if (dropdown) {
     chatComposerPickerDocumentState(dropdown.ownerDocument).pointerOpenedDropdowns.add(dropdown);
@@ -196,11 +228,11 @@ export function markPointerOpenedChatComposerDropdown(event: PointerEvent): void
 
 export function restorePointerOpenedChatComposerTrigger(event: Event): void {
   const dropdown =
-    event.target instanceof HTMLElement && event.target.localName === "wa-dropdown"
+    isRealmHTMLElement(event.target) && event.target.localName === "wa-dropdown"
       ? event.target
       : event.currentTarget;
   if (
-    dropdown instanceof HTMLElement &&
+    isRealmHTMLElement(dropdown) &&
     dropdown.localName === "wa-dropdown" &&
     chatComposerPickerDocumentState(dropdown.ownerDocument).pointerOpenedDropdowns.delete(dropdown)
   ) {
@@ -220,8 +252,8 @@ export function syncChatPickerOverlay(details: HTMLDetailsElement): void {
   // Mobile panels span the composer, so anchor to that stable box; desktop
   // panels stay attached to the individual trigger.
   const composerAnchor =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia(MOBILE_COMPOSER_OVERLAY_QUERY).matches
+    typeof details.ownerDocument.defaultView?.matchMedia === "function" &&
+    details.ownerDocument.defaultView.matchMedia(MOBILE_COMPOSER_OVERLAY_QUERY).matches
       ? (details.closest(".agent-chat__input") ?? undefined)
       : undefined;
   syncAnchoredOverlay(details, "top", { alignment: "end", anchor: composerAnchor });
